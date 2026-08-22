@@ -1658,13 +1658,17 @@ function setView(view) {
 document.querySelectorAll('.vs-btn').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
 
 /* ================= 圆桌会议：角色围坐 + 走动汇报 ================= */
-/* 6 名成员围坐四方桌（相对 round-table 容器的百分比坐标：上2/下2/左1/右1） */
+/* 四方桌：4 个独立 Agent 各坐一边（上/右/下/左） */
+const RT_EXTERNAL = [
+  { id: 'hermes', name: '爱马仕', color: '#3b6ef6', letter: '爱' },
+  { id: 'claudecode', name: '克劳德', color: '#22b07d', letter: '克' },
+  { id: 'openhuma', name: '欧曼', color: '#f5b731', letter: '欧' },
+  { id: 'codex', name: '科德', color: '#8b5cf6', letter: '科' },
+]
 const RT_SEATS = [
-  { x: 38, y: 8 },    // 上左
-  { x: 62, y: 8 },    // 上右
+  { x: 50, y: 8 },    // 上
   { x: 92, y: 44 },   // 右
-  { x: 38, y: 92 },   // 下左
-  { x: 62, y: 92 },   // 下右
+  { x: 50, y: 92 },   // 下
   { x: 8, y: 44 },    // 左
 ]
 const RT_CENTER = { x: 50, y: 46 }
@@ -1672,15 +1676,13 @@ let rtBusy = false
 function renderRoundMembers() {
   const box = document.getElementById('rt-members');
   if (!box || box.children.length > 0) return;
-  AGENTS.forEach((a, i) => {
+  RT_EXTERNAL.forEach((a, i) => {
     const m = document.createElement('div');
     m.className = 'rt-member';
     m.id = 'rt-' + a.id;
     m.style.left = RT_SEATS[i].x + '%';
     m.style.top = RT_SEATS[i].y + '%';
-    const meta = ROLE_META[a.id] || {};
-    const letter = meta.letter || String(a.name).slice(0, 1);
-    m.innerHTML = `<div class="rt-avatar" style="background:${a.scarf}">${esc(letter)}</div>
+    m.innerHTML = `<div class="rt-avatar" style="background:${a.color}">${esc(a.letter)}</div>
       <div class="rt-name">${esc(a.name)}</div>`;
     m.addEventListener('click', () => rtSpeak(a.id));
     box.appendChild(m);
@@ -1691,21 +1693,20 @@ function rtSpeak(id) {
   if (rtBusy) return;
   const m = document.getElementById('rt-' + id);
   if (!m) return;
-  const a = AGENTS.find(x => x.id === id);
+  const a = RT_EXTERNAL.find(x => x.id === id);
+  if (!a) return;
   rtBusy = true;
   m.style.left = RT_CENTER.x + '%';
   m.style.top = RT_CENTER.y + '%';
   m.classList.add('speaking');
-  const s = state[id];
-  const txt = s && s.task && s.task !== '—' && s.task !== '-'
-    ? `正在处理「${s.task}」，进展顺利`
-    : `当前待命，随时可以接任务`;
+  const idx = RT_EXTERNAL.findIndex(x => x.id === id);
+  const txt = `我在线待命，随时接受任务委派`;
   bubble(id, '🎤 会议汇报', txt, 2200);
-  log(`🎤 ${a.name} 走到圆桌中央汇报：${txt}`, 'yitai');
+  log(`🎤 ${a.name} 走到桌中发言：${txt}`, 'yitai');
   setTimeout(() => {
     m.classList.remove('speaking');
-    m.style.left = RT_SEATS[AGENTS.findIndex(x => x.id === id)].x + '%';
-    m.style.top = RT_SEATS[AGENTS.findIndex(x => x.id === id)].y + '%';
+    m.style.left = RT_SEATS[idx].x + '%';
+    m.style.top = RT_SEATS[idx].y + '%';
     setTimeout(() => { rtBusy = false; }, 900);
   }, 2600);
 }

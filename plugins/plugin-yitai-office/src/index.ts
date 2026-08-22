@@ -1015,24 +1015,33 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
 
   /** 执行任务：队长代领 → 调 assignee（A2A 或本地）→ 进入待验收 */
   async function runTask(t: YitaiTask): Promise<void> {
-    const ext = EXTERNAL_AGENTS.find(a => a.id === t.assignee)
-    let attemptId: string
+    // 任务执行失败绝不能杀掉整个 Harness 进程（fail-loud），全部兜住
     try {
-      attemptId = await office.claimTask(t.id, 'yitai')
-    } catch { return }
-    let reply: string
-    if (ext) {
+      const ext = EXTERNAL_AGENTS.find(a => a.id === t.assignee)
+      let attemptId: string
       try {
-        await office.updateTask(t.id, attemptId, 'in_progress')
-        reply = await callExternalA2A(ext.url, `task:${t.id}`, `【任务】${t.subject}\n${t.description ?? ''}\n请执行并给出结果。`)
-      } catch (e: any) {
-        reply = `[执行失败: ${String(e?.message ?? e).slice(0, 150)}]`
+        attemptId = await office.claimTask(t.id, 'yitai')
+      } catch { return }
+      let reply: string
+      if (ext) {
+        try {
+          await office.updateTask(t.id, attemptId, 'in_progress')
+          reply = await callExternalA2A(ext.url, `task:${t.id}`, `【任务】${t.subject}\n${t.description ?? ''}\n请执行并给出结果。`)
+        } catch (e: any) {
+          reply = `[执行失败: ${String(e?.message ?? e).slice(0, 150)}]`
+        }
+        await office.updateTask(t.id, attemptId, 'review', reply)
+        if (VERIFIER) void verifyTask(t)
+      } else {
+        // 非外部 agent 任务（assignee=yitai/我）：执行者是用户本人，
+        // 按状态机 claimed → in_progress → review 两步推进（claimed 直接跳 review 非法）
+        reply = '（任务由你手动执行：完成后在任务看板点「✓ 批准」进入验收）'
+        await office.updateTask(t.id, attemptId, 'in_progress', reply)
+        await office.updateTask(t.id, attemptId, 'review', reply)
       }
-    } else {
-      reply = '（未指定执行 Agent，请手动完成后标记验收）'
+    } catch (e: any) {
+      ctx.logger.warn(`[yitai-orchestrator] 任务 ${t.id} 执行失败（不影响进程）: ${String(e?.message ?? e).slice(0, 200)}`)
     }
-    await office.updateTask(t.id, attemptId, 'review', reply)
-    if (VERIFIER) void verifyTask(t)
   }
 
   /**

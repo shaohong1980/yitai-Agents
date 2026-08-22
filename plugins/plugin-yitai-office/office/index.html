@@ -119,25 +119,11 @@
     text-shadow:0 0 8px rgba(59,110,246,.5);pointer-events:none}
   #round-table .rt-ring{position:absolute;inset:12%;border-radius:50%;
     border:1px dashed rgba(120,140,190,.22)}
-  /* 圆桌发言位（中央） */
-  #round-table .rt-podium{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    font-size:10px;color:#ffd740;letter-spacing:1px;opacity:.85;z-index:2;
-    background:rgba(255,215,64,.08);border:1px solid rgba(255,215,64,.3);border-radius:10px;
-    padding:3px 9px;pointer-events:none;text-shadow:0 0 8px rgba(255,215,64,.5)}
-  /* 圆桌成员座位卡（围坐，可点击走动汇报） */
-  #round-table .rt-member{position:absolute;transform:translate(-50%,-50%);z-index:3;
-    display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;
-    transition:left .9s cubic-bezier(.4,0,.2,1),top .9s cubic-bezier(.4,0,.2,1);user-select:none}
-  #round-table .rt-avatar{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;
-    font-size:13px;font-weight:800;color:#fff;border:2px solid rgba(255,255,255,.22);
-    box-shadow:0 4px 10px rgba(0,0,0,.4);transition:transform .2s}
-  #round-table .rt-member:hover .rt-avatar{transform:scale(1.12)}
-  #round-table .rt-name{font-size:9px;color:#cdd6e8;white-space:nowrap;background:rgba(10,14,26,.65);
-    padding:1px 6px;border-radius:6px;border:1px solid rgba(120,140,190,.18)}
-  #round-table .rt-member.speaking .rt-avatar{border-color:#ffd740;box-shadow:0 0 14px rgba(255,215,64,.65)}
   /* 圆桌成员（复用 .char/.name-tag，绿色呼吸状态点表示会议中） */
   .round-member{position:absolute;width:110px;height:126px;transform:translate(-50%,-50%);z-index:5;
-    filter:drop-shadow(0 4px 8px rgba(0,0,0,.4))}
+    filter:drop-shadow(0 4px 8px rgba(0,0,0,.4));cursor:pointer;user-select:none;
+    transition:left .9s cubic-bezier(.4,0,.2,1),top .9s cubic-bezier(.4,0,.2,1)}
+  .round-member.speaking .char{filter:drop-shadow(0 0 12px rgba(255,215,64,.8))}
   .round-member .status-dot{background:var(--green);animation:blink 1.2s infinite}
   .round-member .char{filter:grayscale(.1) saturate(1.1)}
 
@@ -473,8 +459,6 @@
         <div class="screen-log" id="screen-log"></div>
       </div>
       <div id="round-table">
-        <div class="rt-podium" id="rt-podium">🎤 发言位</div>
-        <div class="rt-members" id="rt-members"></div>
         <div class="rt-glow"></div>
         <div class="rt-bagua" id="rt-bagua"></div>
         <svg class="rt-taiji" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
@@ -758,6 +742,28 @@ const BAGUA_RING = [
     box.appendChild(g);
   });
 })();
+/* 四方桌发言：点击成员 → 走到桌中央汇报 → 回座位 */
+const RT_CENTER = { x: 50, y: 44 }
+let rtBusy = false
+function rtSpeak(id, m) {
+  if (rtBusy) return;
+  const p = ROUND_PARTICIPANTS.find(x => x.id === id);
+  if (!p) return;
+  rtBusy = true;
+  m.style.left = RT_CENTER.x + '%';
+  m.style.top = RT_CENTER.y + '%';
+  m.classList.add('speaking');
+  const txt = `我在线待命，随时接受任务委派`;
+  bubble(id, '🎤 会议汇报', txt, 2200);
+  log(`🎤 ${p.name} 走到桌中发言：${txt}`, 'yitai');
+  setTimeout(() => {
+    m.classList.remove('speaking');
+    m.style.left = p.seat.x + '%';
+    m.style.top = p.seat.y + '%';
+    setTimeout(() => { rtBusy = false; }, 900);
+  }, 2600);
+}
+
 ROUND_PARTICIPANTS.forEach(p => {
   const m = document.createElement('div');
   m.className = 'round-member'; m.id = 'member-' + p.id;
@@ -771,9 +777,7 @@ ROUND_PARTICIPANTS.forEach(p => {
     <div class="name-tag">${p.name}<small>四方桌 · 独立 Agent</small><span class="status-dot"></span></div>`;
   m.style.cursor = 'pointer';
   m.title = '点击：到群聊或任务看板找「' + p.name + '」';
-  m.addEventListener('click', () => {
-    toast(`「${p.name}」在 👥 群聊(讨论) / 📋 任务(派活)中参与`);
-  });
+  m.addEventListener('click', () => rtSpeak(p.id, m));
   floor.appendChild(m);
 });
 
@@ -1656,60 +1660,6 @@ function setView(view) {
   if (view === 'graph') renderGraph();
 }
 document.querySelectorAll('.vs-btn').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
-
-/* ================= 圆桌会议：角色围坐 + 走动汇报 ================= */
-/* 四方桌：4 个独立 Agent 各坐一边（上/右/下/左） */
-const RT_EXTERNAL = [
-  { id: 'hermes', name: '爱马仕', color: '#3b6ef6', letter: '爱' },
-  { id: 'claudecode', name: '克劳德', color: '#22b07d', letter: '克' },
-  { id: 'openhuma', name: '欧曼', color: '#f5b731', letter: '欧' },
-  { id: 'codex', name: '科德', color: '#8b5cf6', letter: '科' },
-]
-const RT_SEATS = [
-  { x: 50, y: 8 },    // 上
-  { x: 92, y: 44 },   // 右
-  { x: 50, y: 92 },   // 下
-  { x: 8, y: 44 },    // 左
-]
-const RT_CENTER = { x: 50, y: 46 }
-let rtBusy = false
-function renderRoundMembers() {
-  const box = document.getElementById('rt-members');
-  if (!box || box.children.length > 0) return;
-  RT_EXTERNAL.forEach((a, i) => {
-    const m = document.createElement('div');
-    m.className = 'rt-member';
-    m.id = 'rt-' + a.id;
-    m.style.left = RT_SEATS[i].x + '%';
-    m.style.top = RT_SEATS[i].y + '%';
-    m.innerHTML = `<div class="rt-avatar" style="background:${a.color}">${esc(a.letter)}</div>
-      <div class="rt-name">${esc(a.name)}</div>`;
-    m.addEventListener('click', () => rtSpeak(a.id));
-    box.appendChild(m);
-  });
-}
-/* 点击成员：走到圆桌中央发言位汇报，然后回座位 */
-function rtSpeak(id) {
-  if (rtBusy) return;
-  const m = document.getElementById('rt-' + id);
-  if (!m) return;
-  const a = RT_EXTERNAL.find(x => x.id === id);
-  if (!a) return;
-  rtBusy = true;
-  m.style.left = RT_CENTER.x + '%';
-  m.style.top = RT_CENTER.y + '%';
-  m.classList.add('speaking');
-  const idx = RT_EXTERNAL.findIndex(x => x.id === id);
-  const txt = `我在线待命，随时接受任务委派`;
-  bubble(id, '🎤 会议汇报', txt, 2200);
-  log(`🎤 ${a.name} 走到桌中发言：${txt}`, 'yitai');
-  setTimeout(() => {
-    m.classList.remove('speaking');
-    m.style.left = RT_SEATS[idx].x + '%';
-    m.style.top = RT_SEATS[idx].y + '%';
-    setTimeout(() => { rtBusy = false; }, 900);
-  }, 2600);
-}
 
 /* ================= 初始化 ================= */
 applyTheme();

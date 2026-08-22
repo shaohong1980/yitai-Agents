@@ -1,6 +1,0 @@
-# Demo 覆盖层：演示模式（可单独叠加）
-# 用法: pnpm dsh web --patch ./cordis.patch.yml --patch ./config/marvis-demo.patch.yml
-- id: marvis-orchestrator
-  config:
-    tickIntervalMs: 3200
-    liveDelegation: false

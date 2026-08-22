@@ -1,4 +1,4 @@
-# Marvis Workbench 启动脚本 (PowerShell)
+# Yitai Workbench 启动脚本 (PowerShell)
 # 用法: .\scripts\start.ps1 [-Port 3080]
 # 强制 Node 22+ : 用 node22 直接执行 pnpm.cjs,并把 node22 放进 PATH 最前,
 # 这样 pnpm 内部 spawn 的 `node` 也是 22+(否则会用 D:\node20 的 v20,缺 node:sqlite)。

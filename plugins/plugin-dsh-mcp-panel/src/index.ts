@@ -5,7 +5,7 @@
  *   - 查看/添加/编辑/删除/启停 MCP 服务器（stdio 或 streamable-http）。
  *   - 通过 ctx.loader 动态挂载/卸载 `@deepseek-ai/dsh-mcp-client` 实例，无需重启。
  *   - 状态实时反映（connected / connecting / failed / disabled）。
- *   - 配置持久化到 $DSH_HOME/bailongma-mcp/servers.json。
+ *   - 配置持久化到 $DSH_HOME/yitai-mcp/servers.json。
  *   - Web UI 面板：http://127.0.0.1:3890/
  *
  * 参考：PerryLink/dsh-mcp-panel（运行时管理面板）、Ceelog/dsh-plugin-setting-mcp（设置页管理）。
@@ -25,7 +25,7 @@ export const inject = ['loader']
 export interface McpPanelConfig {
   /** 面板端口（默认 3890） */
   port?: number
-  /** 配置持久化目录（默认 $DSH_HOME/bailongma-mcp） */
+  /** 配置持久化目录（默认 $DSH_HOME/yitai-mcp） */
   root?: string
 }
 
@@ -48,7 +48,7 @@ const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/
 
 export function apply(ctx: Context, config: McpPanelConfig = {}) {
   const port = config.port ?? 3890
-  const root = config.root ?? `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/bailongma-mcp`
+  const root = config.root ?? `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-mcp`
   const serversFile = join(root, 'servers.json')
   mkdirSync(root, { recursive: true })
 

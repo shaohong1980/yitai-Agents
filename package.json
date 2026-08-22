@@ -1,11 +1,11 @@
 {
-  "name": "myworkspace",
-  "version": "0.1.0",
+  "name": "yitai-agent-team",
+  "version": "1.0.0",
   "private": true,
-  "description": "Marvis Workbench — 白龙马能力迁移 + Marvis 多 Agent 办公室，基于 DeepSeek Harness 插件架构",
+  "description": "易台（Yitai-agent-team）—— 基于 DeepSeek Harness 的本地多 Agent 团队工作台：durable 多 Agent 办公室 + 记忆/语音/会议/A2A",
   "type": "module",
   "scripts": {
     "web": "pnpm dsh web --patch ./cordis.patch.yml",
-    "web:demo": "pnpm dsh web --patch ./cordis.patch.yml --patch ./config/marvis-demo.patch.yml"
+    "web:demo": "pnpm dsh web --patch ./cordis.patch.yml --patch ./config/yitai-demo.patch.yml"
   }
 }

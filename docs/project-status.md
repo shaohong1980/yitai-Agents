@@ -1,4 +1,4 @@
-# Marvis Workbench 项目状态
+# Yitai Workbench 项目状态
 
 > 按实施方案 8 步推进，记录每步的完成情况。
 
@@ -33,15 +33,15 @@ HTTP dispatch 实测: POST /api/dispatch → CEO thinking, agent working ✅
 - **pnpm**：9.15（Harness 声明 11.7，WARN 但可用）。
 - **依赖解析**：`E:\Myworkspace\node_modules` 是到 `~/.dsh/profiles/node_modules` 的 junction。
 - **SQLite**：全链路用 `node:sqlite`（Node 22 内置），与 Harness 自身持久化同款，无需原生编译。
-- **数据目录**：记忆库在 `~/.dsh/bailongma-memory/memory.db`，语音在 `~/.dsh/bailongma-voice/`。
+- **数据目录**：记忆库在 `~/.dsh/yitai-memory/memory.db`，语音在 `~/.dsh/yitai-voice/`。
 
 ## 已知限制
 
-1. **焦点回归判断**：纯关键词启发式，复杂话题漂移识别不准确（白龙马用 LLM 分类器仲裁，可后续加）。
+1. **焦点回归判断**：纯关键词启发式，复杂话题漂移识别不准确（用 LLM LLM 分类器仲裁，可后续加）。
 2. **记忆识别**：目前是启发式偏好提取 + 模型自主调 memory_upsert；LLM 识别器（turn/end + ctx.llm）待做。
 3. **voice**：无 Provider Key，speak 工具返回配置引导；火山引擎签名请求未内置。
 4. **面板端口**：office 页面硬编码 3888；改端口需同步改 HTML 的 WS_PORT。
-5. **liveDelegation**：marvis_dispatch 目前是模拟；true 时需 API Key 且 subagent 服务在 web profile 中挂载。
+5. **liveDelegation**：yitai_dispatch 目前是模拟；true 时需 API Key 且 subagent 服务在 web profile 中挂载。
 
 ## 更新：DeepSeek API Key 已启用（2026-08-15）
 
@@ -53,7 +53,7 @@ HTTP dispatch 实测: POST /api/dispatch → CEO thinking, agent working ✅
 | --- | --- | --- |
 | LLM 记忆识别器 | recognizer.ts（turn/end + ctx.llm.stream） | ✅ 实机提取 `preference_project_stack` |
 | 焦点回填降噪 | 仅 ≥2 次命中的持续话题写结论 | ✅ |
-| liveDelegation | orchestrator 用 ctx.subagents 真实 spawn | ✅ 已接线（需对话中触发 marvis_dispatch） |
+| liveDelegation | orchestrator 用 ctx.subagents 真实 spawn | ✅ 已接线（需对话中触发 yitai_dispatch） |
 | 进程退出修复 | ctx.on('dispose') → ctx.effect() | ✅ headless exit=0 |
 
 ### 实测记录
@@ -74,9 +74,9 @@ headless 任务「记住：我的项目偏好用 TypeScript 和 pnpm」
 
 ## 更新：TokenJuice + 线程/承诺模型（2026-08-15 · 续）
 
-### 新增插件 plugin-bailongma-tokenjuice
+### 新增插件 plugin-yitai-tokenjuice
 
-工具结果压缩（TokenJuice），迁移自白龙马 tool-result-compressor.js。
+工具结果压缩（TokenJuice），基于 tool-result-compressor.js。
 - 大段只读工具输出（read/glob/grep/read_image/memory_search 等）进模型前压成一行摘要 + 全文落盘路径
 - 模型需要细节时按路径用 read 工具取回，省 token 且不丢细节
 - 复用 Harness 的 surface replace 机制（同 dsh-compaction-tool-result-pruner）

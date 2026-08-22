@@ -1,0 +1,12 @@
+{
+  "name": "@myworkspace/plugin-yitai-voice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "易台语音：TTS provider 抽象 + speak 工具 + 音频服务",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  }
+}

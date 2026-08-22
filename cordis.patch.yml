@@ -1,4 +1,4 @@
-# Marvis Workbench 主 patch 覆盖层
+# Yitai Workbench 主 patch 覆盖层
 # 由 `pnpm dsh web --patch ./cordis.patch.yml` 加载。
 # 采用绝对 file URL 引用本地插件，官方 Harness 代码零改动。
 
@@ -6,8 +6,8 @@
     - id: workbench-hello
       name: 'file:///E:/Myworkspace/plugins/plugin-hello/src/index.ts'
 
-    - id: bailongma-memory
-      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-memory/src/index.ts'
+    - id: yitai-memory
+      name: 'file:///E:/Myworkspace/plugins/plugin-yitai-memory/src/index.ts'
       config:
         injectLimit: 6
         decayDays: 60
@@ -17,8 +17,8 @@
           provider: deepseek-official
           model: deepseek-v4-flash
 
-    - id: marvis-orchestrator
-      name: 'file:///E:/Myworkspace/plugins/plugin-marvis-orchestrator/src/index.ts'
+    - id: yitai-orchestrator
+      name: 'file:///E:/Myworkspace/plugins/plugin-yitai-office/src/index.ts'
       config:
         port: 3888
         tickIntervalMs: 4200
@@ -27,18 +27,18 @@
         demoMode: true
         subagentProvider: spawn
         # 办公室状态持久化目录（磁盘真相源：office.json + inbox/*.jsonl）
-        stateDir: '.marvis-office'
+        stateDir: '.yitai-office'
 
-    - id: bailongma-voice
-      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-voice/src/index.ts'
+    - id: yitai-voice
+      name: 'file:///E:/Myworkspace/plugins/plugin-yitai-voice/src/index.ts'
       config:
         port: 3889
         provider: ''
         openai:
           voice: nova
 
-    - id: bailongma-tokenjuice
-      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-tokenjuice/src/index.ts'
+    - id: yitai-tokenjuice
+      name: 'file:///E:/Myworkspace/plugins/plugin-yitai-tokenjuice/src/index.ts'
       config:
         thresholdChars: 6000
         whitelist: [read, glob, grep, read_image, memory_search, memory_recall, list_dir]

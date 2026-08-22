@@ -1,0 +1,6 @@
+# Demo 覆盖层：演示模式（可单独叠加）
+# 用法: pnpm dsh web --patch ./cordis.patch.yml --patch ./config/yitai-demo.patch.yml
+- id: yitai-orchestrator
+  config:
+    tickIntervalMs: 3200
+    liveDelegation: false

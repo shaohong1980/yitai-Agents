@@ -1,6 +1,6 @@
 - insert:
-    - id: bailongma-memory
-      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-memory/src/index.ts'
+    - id: yitai-memory
+      name: 'file:///E:/Myworkspace/plugins/plugin-yitai-memory/src/index.ts'
       config:
         llmRecognition: true
         llm:

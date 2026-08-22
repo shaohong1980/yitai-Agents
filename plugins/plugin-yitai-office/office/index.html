@@ -146,6 +146,15 @@
   .char .eye.l{left:12px}.char .eye.r{right:12px}
   .char .scarf{position:absolute;left:8px;right:8px;top:42px;height:8px;border-radius:5px}
   .char.working{animation:typing .45s ease-in-out infinite}
+  /* 工作形象：金色安全帽 + 身体提亮（与空闲明显区分） */
+  .char.working::after{content:"";position:absolute;left:50%;top:0;transform:translateX(-50%);
+    width:16px;height:9px;background:linear-gradient(#ffd740,#f5b731);border-radius:4px 4px 2px 2px;
+    box-shadow:0 2px 4px rgba(0,0,0,.35);z-index:2;animation:hatBob 1.2s ease-in-out infinite}
+  @keyframes hatBob{50%{transform:translateX(-50%) translateY(-1px)}}
+  .char.working .body{filter:brightness(1.22) saturate(1.12)}
+  /* 空闲：闭眼休息（走路时除外） */
+  .char.idle:not(.walking) .eye{height:2px;top:33px;border-radius:2px;transition:none}
+  .char.idle:not(.walking) .eye::after{display:none}
   @keyframes typing{0%,100%{transform:translateX(-50%)}25%{transform:translateX(-50%) translateY(-2px)}75%{transform:translateX(-50%) translateY(1px)}}
   .char.walking{animation:walkBob .3s ease-in-out infinite}
   @keyframes walkBob{0%,100%{transform:translateX(-50%) rotate(-4deg)}50%{transform:translateX(-50%) translateY(-4px) rotate(4deg)}}
@@ -732,7 +741,7 @@ function setStatus(id, status, task, bubbleMsg) {
   if (!state[id]) return;
   const s = state[id]; s.status = status; if (task !== undefined) s.task = task;
   const e = el[id];
-  e.char.className = 'char' + (s.walking ? ' walking' : '') + (status !== 'idle' ? ' ' + status : '');
+  e.char.className = 'char' + (s.walking ? ' walking' : '') + (status !== 'idle' ? ' ' + status : ' idle');
   if (status === 'sleep') e.char.classList.add('sleep');
   e.dot.className = 'status-dot st-' + status;
   if (e.monitor) e.monitor.classList.toggle('on', status === 'working' || status === 'thinking');

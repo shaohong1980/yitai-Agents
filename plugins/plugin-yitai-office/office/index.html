@@ -248,6 +248,14 @@
   .set-row{margin-bottom:18px}
   .set-label{font-size:12px;font-weight:700;color:var(--sub);letter-spacing:1px;margin-bottom:10px}
   .set-desc{font-size:12px;color:var(--sub);line-height:1.6;margin-bottom:12px}
+  /* 会议室参会者卡片：名字|头像|职位 */
+  .mp-row{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+    border-radius:10px;padding:5px 10px;flex-shrink:0}
+  .mp-row .mp-name{font-size:12px;font-weight:700;color:var(--ink);white-space:nowrap}
+  .mp-row .mp-avatar{width:24px;height:24px;border-radius:6px;display:flex;align-items:center;
+    justify-content:center;font-size:11px;color:#fff;flex-shrink:0}
+  .mp-row .mp-role{font-size:10px;color:var(--sub);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis}
+  #m-participants-box{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
   .theme-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
   .theme-card{border:2px solid var(--line);border-radius:12px;padding:10px;cursor:pointer;transition:all .2s;background:var(--input-bg)}
   .theme-card:hover{border-color:var(--accent)}
@@ -442,7 +450,7 @@
       <div class="tk-new">
         <input id="tk-title" placeholder="新任务：如「起草西李村季度总结」" autocomplete="off">
         <select id="tk-assignee">
-          <option value="auto" selected>🤖 自动派单(按内容推荐)</option>
+          <option value="auto" selected>🤖 自动派单(交易总管)</option>
           <option value="me">我(手动执行)</option>
           <option value="hermes">爱马仕(Hermes)</option>
           <option value="claudecode">ClaudeCode</option>
@@ -593,6 +601,7 @@
           <button class="btn btn-ghost btn-sm" id="m-end" style="color:var(--red);border-color:rgba(224,90,90,.4)">🏁 结束会议</button>
         </div>
       </div>
+      <div id="m-participants-box" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
       <div id="m-transcript" style="height:300px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;line-height:1.6;margin-top:8px;background:var(--panel2)"></div>
       <div class="ext-form" style="display:flex;gap:8px;margin-top:8px">
         <input id="m-say" placeholder="在会议室发言…" style="flex:1">
@@ -1336,6 +1345,17 @@ async function selectMeeting(id) {
   await loadMeetingDetail(id);
 }
 
+/* 会议室角色头像表（名字/职位来自会议数据，颜色/字母用于头像） */
+const ROLE_META = {
+  yitai: { color: '#ff7a59', letter: '管' }, file: { color: '#8b5cf6', letter: '文' },
+  computer: { color: '#22b07d', letter: '脑' }, app: { color: '#f5b731', letter: '用' },
+  zhuge: { color: '#3b6ef6', letter: '诸' }, find: { color: '#0fb5ba', letter: '搜' },
+  hermes: { color: '#3b6ef6', letter: 'H' }, claudecode: { color: '#22b07d', letter: 'C' },
+  openhuma: { color: '#f5b731', letter: 'O' }, codex: { color: '#8b5cf6', letter: 'X' },
+  user: { color: '#3b6ef6', letter: '我' }, system: { color: '#8a94ad', letter: '系' },
+}
+function metaOf(id) { return ROLE_META[id] || { color: '#6b7690', letter: String(id || '?')[0].toUpperCase() } }
+
 async function loadMeetingDetail(id) {
   try {
     const res = await fetch('/api/meetings/' + id);
@@ -1343,8 +1363,15 @@ async function loadMeetingDetail(id) {
     const m = await res.json();
     document.getElementById('m-detail').style.display = 'block';
     document.getElementById('m-detail-title').textContent = `🏢 ${m.title}（${m.status === 'running' ? '进行中' : '已结束'} · ${m.roundCount} 轮 · ${m.transcript.length} 条）`;
-    const p = (m.participants || []).map(x => `${x.name}(${x.role})`).join('、');
-    let html = `<div style="color:var(--sub);margin-bottom:6px">参会：${esc(p)}</div>`;
+    // 参会者卡片：名字在头像左边，职位/职能在头像右边
+    const box = document.getElementById('m-participants-box');
+    box.innerHTML = (m.participants || []).map(x => {
+      const mm = metaOf(x.id);
+      return `<div class="mp-row"><span class="mp-name">${esc(x.name)}</span>` +
+        `<span class="mp-avatar" style="background:${mm.color}">${esc(mm.letter)}</span>` +
+        `<span class="mp-role">${esc(x.role)}</span></div>`;
+    }).join('');
+    let html = '';
     if (m.digest && m.digest.length) html += `<div style="color:var(--yellow);margin-bottom:6px;font-size:11px">🧠 摘要：<br>${m.digest.map(esc).join('<br>')}</div>`;
     html += (m.transcript || []).map(t => {
       const name = t.speaker === 'user' ? '👤 你' : (t.speaker === 'system' ? '🖥 系统' : `💬 ${esc(t.name)}`);

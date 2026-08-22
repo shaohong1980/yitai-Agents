@@ -548,13 +548,8 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
             if (!title) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'title required' })); return }
             let assignee = String(parsed.assignee || 'auto')
             if (assignee === 'auto') {
-              const text = title + ' ' + String(parsed.desc || '')
-              if (/代码|开发|程序|脚本|bug|部署|接口|测试|修复|python|js/.test(text)) assignee = 'codex'
-              else if (/claudecode|claude/.test(text)) assignee = 'claudecode'
-              else if (/文档|PPT|课件|公文|纪要|报告|方案|总结|培训|word|docx/.test(text)) assignee = 'hermes'
-              else if (/检索|查询|搜索|资料|调研|数据|信息|新闻|图表/.test(text)) assignee = 'hermes'
-              else if (/图片|海报|设计|视频|音频|语音|图像/.test(text)) assignee = 'openhuma'
-              else assignee = 'hermes'
+              // 自动派单：统一交给易总管（yitai），由易总管拆解、分派、调度
+              assignee = 'yitai'
             }
             const ext = EXTERNAL_AGENTS.find(a => a.id === assignee)
             const t = await office.createTask({

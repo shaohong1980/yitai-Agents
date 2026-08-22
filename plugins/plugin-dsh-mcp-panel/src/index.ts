@@ -91,11 +91,13 @@ export function apply(ctx: Context, config: McpPanelConfig = {}) {
   async function mountServer(s: McpServerConfig): Promise<void> {
     if (!s.enabled) return
     try {
+      // create 的类型定义 Omit 了 id（id 由树自动生成），但运行时 ensureId 会保留传入的 id，
+      // 便于后续按 entryId(name) 卸载；这里用 Omit 断言绕过 excess-property 检查。
       await ctx.loader.create({
         id: entryId(s.serverName),
         name: '@deepseek-ai/dsh-mcp-client',
         config: toClientConfig(s),
-      })
+      } as Omit<import('@deepseek-ai/cordis-plugin-loader').EntryOptions, 'id'>)
       ctx.logger.info(`[mcp-panel] 已挂载 MCP 服务器: ${s.serverName}`)
     } catch (e) {
       ctx.logger.warn(`[mcp-panel] 挂载 MCP 失败 ${s.serverName}: ${String(e)}`)
@@ -138,7 +140,7 @@ export function apply(ctx: Context, config: McpPanelConfig = {}) {
     try { return readFileSync(join(__dirname, '../ui/index.html'), 'utf8') } catch { return null }
   })()
 
-  const json = (res: ReturnType<typeof createServer> extends never ? never : any, code: number, data: unknown): void => {
+  const json = (res: import('node:http').ServerResponse, code: number, data: unknown): void => {
     res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify(data))
   }

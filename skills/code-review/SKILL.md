@@ -1,6 +1,10 @@
 ---
 name: code-review
 description: 代码审查：从正确性、安全、可维护性、性能角度审查代码变更，给出可执行的修改建议。
+version: 1.0.0
+author: 张诗红 (shaohong1980)
+license: MIT
+platforms: [windows, linux, macos]
 ---
 
 # 代码审查（Code Review）

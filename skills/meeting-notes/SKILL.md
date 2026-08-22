@@ -1,6 +1,10 @@
 ---
 name: meeting-notes
 description: 会议纪要：从对话/录音稿提炼结构化纪要（结论、待办、决策、风险）。
+version: 1.0.0
+author: 张诗红 (shaohong1980)
+license: MIT
+platforms: [windows, linux, macos]
 ---
 
 # 会议纪要（Meeting Notes）

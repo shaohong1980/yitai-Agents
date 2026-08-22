@@ -39,6 +39,8 @@ export const inject = ['tools', 'subagents', 'llm', 'agents', 'systemPrompt']
 export interface YitaiConfig {
   /** 面板服务端口（默认 3888） */
   port?: number
+  /** Harness Web UI 端口（默认 3080，注入到面板 HTML 的 iframe/状态栏） */
+  harnessPort?: number
   /** 自主模拟 tick 间隔 ms（默认 4200，0 关闭） */
   tickIntervalMs?: number
   /** 是否把任务真正委托给 durable subagent 员工（默认 true） */
@@ -79,7 +81,48 @@ export interface YitaiTeamService {
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export function apply(ctx: Context, config: YitaiConfig = {}) {
+  /* ============ 记忆库访问后端 ============
+   * 优先注入 memory 插件提供的 yitai.memory 服务（同一 SQLite 连接、走 FTS/衰减逻辑）；
+   * 缺省（单独挂载本插件时）回退直连 memory.db，兼容旧行为。 */
+  interface MemoryBackend {
+    queryAll(sql: string, params?: unknown[]): Record<string, unknown>[]
+    upsertMemory(mem: {
+      mem_id: string; content: string; type?: string; title?: string; detail?: string
+      entities?: string[]; tags?: string[]; salience?: number; source_ref?: string
+    }): unknown
+  }
+  const memoryService = ctx.get('yitai.memory') as { store?: MemoryBackend } | undefined
+  let fallbackMemDb: DatabaseSync | null = null
+  function memoryBackend(): MemoryBackend | null {
+    if (memoryService?.store) return memoryService.store
+    if (fallbackMemDb) return fallbackMemDb as unknown as MemoryBackend
+    try {
+      const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
+      const db = new DatabaseSync(`${memRoot}/memory.db`)
+      fallbackMemDb = db
+      return {
+        queryAll: (sql, params = []) => db.prepare(sql).all(...params) as Record<string, unknown>[],
+        upsertMemory: (mem) => {
+          const now = new Date().toISOString()
+          db.prepare(`
+            INSERT INTO memories (mem_id, type, title, content, detail, entities, tags, salience, source_ref, created_at, updated_at, last_accessed, access_count, visibility)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(mem_id) DO UPDATE SET
+              type=excluded.type, title=excluded.title, content=excluded.content, detail=excluded.detail,
+              entities=excluded.entities, tags=excluded.tags, salience=excluded.salience,
+              source_ref=excluded.source_ref, updated_at=excluded.updated_at, visibility=excluded.visibility
+          `).run(
+            mem.mem_id, mem.type ?? 'fact', mem.title ?? '', mem.content, mem.detail ?? '',
+            JSON.stringify(mem.entities ?? []), JSON.stringify(mem.tags ?? []), mem.salience ?? 3,
+            mem.source_ref ?? '', now, now, null, 0, 'visible',
+          )
+        },
+      }
+    } catch { return null }
+  }
+
   const port = config.port ?? 3888
+  const harnessPort = config.harnessPort ?? 3080
   const tickInterval = config.tickIntervalMs ?? 4200
   const liveDelegation = config.liveDelegation ?? true
   const demoMode = config.demoMode ?? true
@@ -118,7 +161,8 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   const htmlPath = join(__dirname, '../office/index.html')
   let htmlCache: string | null = null
   try {
-    htmlCache = readFileSync(htmlPath, 'utf8')
+    // 运行时注入 Harness 端口占位符：改配置端口无需再同步改 HTML
+    htmlCache = readFileSync(htmlPath, 'utf8').replaceAll('__HARNESS_PORT__', String(harnessPort))
   } catch (e) {
     ctx.logger.warn(`[yitai-office] 未找到 office/index.html: ${String(e)}`)
   }
@@ -196,14 +240,13 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
       let links: { source: string; target: string }[] = []
       let typeCounts: Record<string, number> = {}
       try {
-        const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
-        const db = new DatabaseSync(`${memRoot}/memory.db`)
-        const rows = db.prepare(
+        const db = memoryBackend()
+        if (!db) throw new Error('memory db unavailable')
+        const rows = db.queryAll(
           `SELECT mem_id, type, title, content, tags, entities, salience FROM memories WHERE visibility='visible' LIMIT 120`,
-        ).all() as Record<string, unknown>[]
-        const typeRows = db.prepare(`SELECT type, COUNT(*) AS n FROM memories WHERE visibility='visible' GROUP BY type`).all() as Record<string, unknown>[]
+        ) as Record<string, unknown>[]
+        const typeRows = db.queryAll(`SELECT type, COUNT(*) AS n FROM memories WHERE visibility='visible' GROUP BY type`) as Record<string, unknown>[]
         for (const r of typeRows) typeCounts[String(r.type)] = Number(r.n)
-        db.close()
         const arrOf = (v: unknown): string[] => {
           try { const t = JSON.parse(String(v || '[]')); return Array.isArray(t) ? t.map(String) : [] } catch { return [] }
         }
@@ -260,12 +303,11 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
     }
     if (url === '/api/knowledge/export') {
       try {
-        const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
-        const db = new DatabaseSync(`${memRoot}/memory.db`)
-        const memories = db.prepare(
+        const db = memoryBackend()
+        if (!db) throw new Error('memory db unavailable')
+        const memories = db.queryAll(
           `SELECT mem_id, type, title, content, detail, entities, tags, salience, source_ref, created_at, updated_at, visibility FROM memories ORDER BY created_at`,
-        ).all()
-        db.close()
+        )
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ app: '多Agent办公室', exportedAt: new Date().toISOString(), memories }))
       } catch (e) {
@@ -286,26 +328,26 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
             res.end(JSON.stringify({ ok: false, error: 'empty data' }))
             return
           }
-          const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
-          const db = new DatabaseSync(`${memRoot}/memory.db`)
+          const db = memoryBackend()
+          if (!db) throw new Error('memory db unavailable')
           const now = new Date().toISOString()
           const arrOf = (v: unknown): string[] => {
             try { const t = JSON.parse(String(v || '[]')); return Array.isArray(t) ? t.map(String) : [] } catch { return [] }
           }
-          const upsert = db.prepare(`
+          const upsertSQL = `
             INSERT INTO memories (mem_id, type, title, content, detail, entities, tags, salience, source_ref, created_at, updated_at, last_accessed, access_count, visibility)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(mem_id) DO UPDATE SET
               type=excluded.type, title=excluded.title, content=excluded.content, detail=excluded.detail,
               entities=excluded.entities, tags=excluded.tags, salience=excluded.salience,
               source_ref=excluded.source_ref, updated_at=excluded.updated_at, visibility=excluded.visibility
-          `)
+          `
           let inserted = 0
           for (const m of memories) {
             if (!m || typeof m !== 'object') continue
             const memId = (m as { _nid?: unknown; mem_id?: unknown })._nid || (m as { mem_id?: unknown }).mem_id
             if (!memId) continue
-            upsert.run(
+            db.queryAll(upsertSQL, [
               String(memId),
               String((m as { type?: unknown }).type || 'fact'),
               String((m as { title?: unknown; label?: unknown }).title || (m as { label?: unknown }).label || ''),
@@ -319,10 +361,9 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
               String((m as { updated_at?: unknown }).updated_at || now),
               null, 0,
               String((m as { visibility?: unknown }).visibility || 'visible'),
-            )
+            ])
             inserted++
           }
-          db.close()
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ ok: true, count: inserted }))
         } catch (e) {
@@ -727,8 +768,10 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
     })
     return () => {
       if (tickTimer) clearInterval(tickTimer)
+      team.dispose()
       wss.close()
       server.close()
+      try { fallbackMemDb?.close() } catch { /* noop */ }
     }
   })
 
@@ -774,21 +817,21 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   /** 把一次 Agent 对话写入易台记忆库（type=dialog），让图谱球记录对话内容 */
   function saveChatMemory(agentId: string, agentName: string, userText: string, reply: string): void {
     try {
-      const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
-      const db = new DatabaseSync(`${memRoot}/memory.db`)
-      const now = new Date().toISOString()
+      const backend = memoryBackend()
+      if (!backend) return
       const memId = `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
       const q = userText.length > 40 ? userText.slice(0, 40) + '…' : userText
-      db.prepare(`
-        INSERT INTO memories (mem_id, type, title, content, detail, entities, tags, salience, source_ref, created_at, updated_at, last_accessed, access_count, visibility)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        memId, 'dialog', `${agentName}：${q}`,
-        `【你 → ${agentName}】${userText}\n【${agentName}】${reply}`,
-        '', JSON.stringify([agentName, agentId]), JSON.stringify(['对话', agentName]),
-        4, 'yitai-office-chat', now, now, null, 0, 'visible',
-      )
-      db.close()
+      backend.upsertMemory({
+        mem_id: memId,
+        type: 'dialog',
+        title: `${agentName}：${q}`,
+        content: `【你 → ${agentName}】${userText}\n【${agentName}】${reply}`,
+        detail: '',
+        entities: [agentName, agentId],
+        tags: ['对话', agentName],
+        salience: 4,
+        source_ref: 'yitai-office-chat',
+      })
     } catch { /* 记忆写入失败不影响对话 */ }
   }
 
@@ -1236,22 +1279,20 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
     try {
       const room = meetings.get(meetingId)
       if (!room) return
-      const memRoot = `${process.env.DSH_HOME ?? `${process.env.USERPROFILE ?? '~'}/.dsh`}/yitai-memory`
-      const db = new DatabaseSync(`${memRoot}/memory.db`)
-      const now = new Date().toISOString()
+      const backend = memoryBackend()
+      if (!backend) return
       const memId = `meeting_${meetingId}_${Date.now()}`
-      db.prepare(`
-        INSERT INTO memories (mem_id, type, title, content, detail, entities, tags, salience, source_ref, created_at, updated_at, last_accessed, access_count, visibility)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        memId, 'meeting', `会议纪要：${room.title}`,
-        minutes,
-        `${room.title}\n参会者：${room.participants.map(p => p.name).join('、')}`,
-        JSON.stringify(room.participants.map(p => p.id)),
-        JSON.stringify(['会议', room.title]),
-        5, `meeting:${meetingId}`, now, now, null, 0, 'visible',
-      )
-      db.close()
+      backend.upsertMemory({
+        mem_id: memId,
+        type: 'meeting',
+        title: `会议纪要：${room.title}`,
+        content: minutes,
+        detail: `${room.title}\n参会者：${room.participants.map(p => p.name).join('、')}`,
+        entities: room.participants.map(p => p.id),
+        tags: ['会议', room.title],
+        salience: 5,
+        source_ref: `meeting:${meetingId}`,
+      })
       ctx.logger.info(`[yitai-orchestrator] 📝 会议纪要已写入记忆库：${memId}`)
     } catch (e) {
       ctx.logger.warn(`[yitai-orchestrator] 纪要写入记忆库失败: ${String(e)}`)

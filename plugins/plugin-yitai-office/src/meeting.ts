@@ -356,6 +356,7 @@ export class MeetingManager {
       const text = (msg.parts ?? []).map((p: any) => p.text ?? '').join('')
       return text || `[外部 agent 返回空]`
     } catch (e: any) {
+      clearTimeout(timer)
       return `[外部 agent 调用失败: ${String(e?.message ?? e).slice(0, 150)}]`
     }
   }

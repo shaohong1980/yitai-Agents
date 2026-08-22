@@ -1,6 +1,10 @@
 ---
 name: task-breakdown
 description: 把模糊/复杂的需求拆成可执行步骤清单与问题链。适合诸葛（规划参谋）接到新任务时使用。
+version: 1.0.0
+author: 张诗红 (shaohong1980)
+license: MIT
+platforms: [windows, linux, macos]
 ---
 
 # 任务拆解（Task Breakdown）

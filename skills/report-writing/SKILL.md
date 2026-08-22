@@ -1,6 +1,10 @@
 ---
 name: report-writing
 description: 报告写作：从数据/要点生成结构清晰、可读性强的报告。适合 Yitai（主管）汇总团队结果。
+version: 1.0.0
+author: 张诗红 (shaohong1980)
+license: MIT
+platforms: [windows, linux, macos]
 ---
 
 # 报告写作（Report Writing）

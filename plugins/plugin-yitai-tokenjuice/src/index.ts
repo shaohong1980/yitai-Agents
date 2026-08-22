@@ -118,10 +118,11 @@ export function apply(ctx: Context, config: TokenJuiceConfig = {}) {
     }
   }
 
-  ctx.on('session/event', (session, event: { type: string; data?: { callId?: unknown; name?: unknown; arguments?: unknown; message?: unknown } }) => {
+  ctx.on('session/event', (session, event: { type: string; seq?: number; data?: unknown }) => {
     const type = event.type
-    if (type === 'tool/call' && event.data) {
-      const d = event.data as { callId: string; name: string; arguments: string }
+    if (type === 'tool/call') {
+      const d = (event.data ?? {}) as { callId: string; name: string; arguments: string }
+      if (!d.callId) return
       try {
         callInfo.set(d.callId, { name: d.name, arguments: JSON.parse(d.arguments ?? '{}') })
       } catch {
@@ -129,8 +130,11 @@ export function apply(ctx: Context, config: TokenJuiceConfig = {}) {
       }
       return
     }
-    if (type === 'tool/result' && event.data && typeof event.data.message === 'object') {
-      compress(session, event as { seq: number; data: { message: ToolResultMessage } })
+    if (type === 'tool/result') {
+      const d = (event.data ?? {}) as { message?: ToolResultMessage }
+      if (d.message) {
+        compress(session, { seq: event.seq ?? 0, data: { message: d.message } })
+      }
       // 限制 callInfo 大小
       if (callInfo.size > 500) {
         const first = callInfo.keys().next().value

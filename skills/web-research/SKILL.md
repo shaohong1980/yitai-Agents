@@ -1,6 +1,10 @@
 ---
 name: web-research
 description: 网络调研工作流：检索 → 抓取 → 筛选 → 带来源的摘要。适合小搜（检索专员）做竞品调研/资料查找。
+version: 1.0.0
+author: 张诗红 (shaohong1980)
+license: MIT
+platforms: [windows, linux, macos]
 ---
 
 # 网络调研（Web Research）

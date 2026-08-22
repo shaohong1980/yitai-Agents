@@ -38,12 +38,22 @@
 
 要求：Node 22+（推荐 hermes 目录的 node）、pnpm、DeepSeek Harness 已构建。
 
+**Clone 后配置（可移植性）：** 启动脚本优先读环境变量，其次自动探测常见路径：
+
+| 环境变量 | 作用 | 默认 |
+| --- | --- | --- |
+| `HARNESS_DIR` | DeepSeek Harness 仓库目录 | 本仓库同级 `../deepseek-harness` |
+| `NODE_BIN` | Node 22+ 可执行文件 | 自动探测 hermes node / D:\node24 / PATH |
+| `PNPM_BIN` | pnpm.cjs 路径 | 自动探测仓库 node_modules / PATH |
+
+`cordis.patch.yml` / `config/*.patch.yml` 中插件 `name` 必须用绝对 `file://` URL（`--patch` overlay 的相对路径基准是 `$DSH_HOME/profiles/<name>/`，不是 patch 文件目录）。**迁移机器/改名后**运行 `./scripts/fix-paths.sh` 一键把其中的仓库绝对路径替换为新路径（含 `customSkillDirs`）。
+
 ---
 
 ## 🏗 架构
 
 ```
-E:\Myworkspace\                          # 易台 Agent 团队，独立仓库
+yitai-Agents\                        # 易台 Agent 团队，独立仓库（本仓库根）
 ├── cordis.patch.yml                     # 主 patch 覆盖层（--patch 注入）
 ├── plugins\
 │   ├── plugin-hello\                    # 管道自检（hello world）
@@ -79,9 +89,9 @@ E:\Myworkspace\                          # 易台 Agent 团队，独立仓库
 ## 🔌 零侵入原则
 
 - **不改 Harness 源码**：官方仓库 `E:\deepseek-harness` 保持 `git pull` 可升级。
-- 所有插件通过 `pnpm dsh web --patch E:/Myworkspace/cordis.patch.yml` 挂载。
-- 插件以绝对 `file://` URL 引用，Harness 官方代码零改动。
-- 依赖解析：`E:\Myworkspace\node_modules` 是到 `~/.dsh/profiles/node_modules` 的 junction，共享 Harness 同一份 cordis/dsh 包。
+- 所有插件通过 `pnpm dsh web --patch <repo>/cordis.patch.yml` 挂载。
+- 插件以相对路径引用（相对 patch 文件自身），Harness 官方代码零改动。
+- 依赖解析：仓库根 `node_modules` 是到 `~/.dsh/profiles/node_modules` 的 junction（Windows）或软链，共享 Harness 同一份 cordis/dsh 包。
 
 ---
 

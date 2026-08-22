@@ -1,6 +1,8 @@
 # Yitai Workbench 主 patch 覆盖层
 # 由 `pnpm dsh web --patch ./cordis.patch.yml` 加载。
-# 采用绝对 file URL 引用本地插件，官方 Harness 代码零改动。
+# 插件用绝对 file:// URL 引用（--patch overlay 的相对路径基准是 $DSH_HOME/profiles/<name>/，
+# 不是本文件目录，故必须绝对路径），官方 Harness 代码零改动。
+# 迁移机器：把下方 E:/Myworkspace 批量替换为你的仓库路径（或运行 scripts/fix-paths.sh）。
 
 - insert:
     - id: workbench-hello

@@ -876,7 +876,7 @@ setInterval(() => {
 const conn = document.getElementById('conn');
 let ws = null, connected = false;
 function connect() {
-  ws = new WebSocket(`ws://${location.hostname || '127.0.0.1'}:3888/ws`);
+  ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => { connected = true; conn.className = 'on'; conn.textContent = '● 实时已连接'; log('🏢 已连接办公室事件流', 'sys'); };
   ws.onclose = () => { connected = false; conn.className = 'off'; conn.textContent = '● 重连中'; setTimeout(connect, 3000); };
   ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } handleMsg(m); };
@@ -1090,7 +1090,7 @@ async function loadPlugins() {
       box.appendChild(row);
     });
     const about = document.getElementById('about-line');
-    if (about) about.textContent = `面板服务 http://127.0.0.1:3888 · Harness http://127.0.0.1:3080 · 插件 ${data.live}/${data.total} 在线`;
+    if (about) about.textContent = `面板服务 ${location.protocol}//${location.host} · Harness http://${location.hostname}:__HARNESS_PORT__ · 插件 ${data.live}/${data.total} 在线`;
   } catch { box.innerHTML = '<div class="set-desc">插件状态获取失败</div>'; }
 }
 
@@ -1615,7 +1615,7 @@ let currentView = localStorage.getItem(VIEW_KEY) || 'office';
 function ensureHarnessFrame() {
   const f = document.getElementById('harness-frame');
   if (f && !f.src) {
-    f.src = `http://${location.hostname || '127.0.0.1'}:3080/`;
+    f.src = `http://${location.hostname || '127.0.0.1'}:__HARNESS_PORT__/`;
     f.addEventListener('load', () => { const p = document.getElementById('harness-placeholder'); if (p) p.style.display = 'none'; });
   }
 }

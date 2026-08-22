@@ -73,6 +73,7 @@ export class YitaiTeam {
   doneCount = 0
   logLines: { time: string; cls: string; msg: string }[] = []
   private tickCounter = 0
+  private timers = new Set<ReturnType<typeof setTimeout>>()
   emitFn: (event: TeamEvent) => void
 
   constructor(emitFn: (event: TeamEvent) => void) {
@@ -89,6 +90,21 @@ export class YitaiTeam {
         walking: false,
       })
     }
+  }
+
+  /** 可清理的延迟执行：所有演示动画定时器统一登记，dispose 时一并取消。 */
+  private later(fn: () => void, ms: number): void {
+    const timer = setTimeout(() => {
+      this.timers.delete(timer)
+      fn()
+    }, ms)
+    this.timers.add(timer)
+  }
+
+  /** 取消全部未完成的演示动画定时器（插件卸载时调用）。 */
+  dispose(): void {
+    for (const timer of this.timers) clearTimeout(timer)
+    this.timers.clear()
   }
 
   get(id: string): AgentState {
@@ -150,12 +166,12 @@ export class YitaiTeam {
     s.walking = true
     this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身前往认知图谱…`, timestamp: Date.now() })
     const target = SEATS[idx]
-    setTimeout(() => {
+    this.later(() => {
       s.pos = { ...target }
       s.walking = false
       this.emitFn({ type: 'report', agentId: id, message: `${this.nameOf(id)} 在认知图谱向易总管汇报「${s.task}」`, timestamp: Date.now() })
       // 稍后回到工位
-      setTimeout(() => {
+      this.later(() => {
         this.seatBusy[idx] = null
         s.seat = -1
         s.pos = { ...this.agentDef(id)!.desk }
@@ -182,20 +198,20 @@ export class YitaiTeam {
 
     const lastIdx = picked.length - 1
     picked.forEach((p, i) => {
-      setTimeout(() => {
+      this.later(() => {
         this.emitFn({ type: 'dispatch', agentId: p.id, task, message: `${p.name} 接到子任务，在工位开始执行`, timestamp: Date.now() })
         this.startTask(p.id, task)
-        setTimeout(() => {
+        this.later(() => {
           this.walkToTable(p.id)
           // 最后一名员工汇报完成后触发 onDone
           if (i === lastIdx) {
-            setTimeout(() => onDone?.(task), 2400 + 1150)
+            this.later(() => onDone?.(task), 2400 + 1150)
           }
         }, 5000 + i * 2500)
       }, 700 * (i + 1))
     })
 
-    setTimeout(() => this.setStatus('yitai', 'idle'), 4000)
+    this.later(() => this.setStatus('yitai', 'idle'), 4000)
     return task
   }
 

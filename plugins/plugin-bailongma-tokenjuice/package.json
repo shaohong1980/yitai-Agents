@@ -1,0 +1,13 @@
+{
+  "name": "@myworkspace/plugin-bailongma-tokenjuice",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TokenJuice 工具结果压缩：大段只读工具输出进模型前压成摘要，全文落盘可按需取回",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-llm": "workspace:^",
+    "@deepseek-ai/dsh-session": "workspace:^"
+  }
+}

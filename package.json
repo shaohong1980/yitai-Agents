@@ -1,0 +1,11 @@
+{
+  "name": "myworkspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marvis Workbench — 白龙马能力迁移 + Marvis 多 Agent 办公室，基于 DeepSeek Harness 插件架构",
+  "type": "module",
+  "scripts": {
+    "web": "pnpm dsh web --patch ./cordis.patch.yml",
+    "web:demo": "pnpm dsh web --patch ./cordis.patch.yml --patch ./config/marvis-demo.patch.yml"
+  }
+}

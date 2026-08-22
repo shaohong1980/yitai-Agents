@@ -1,0 +1,12 @@
+{
+  "name": "@myworkspace/plugin-dsh-mcp-panel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP 服务器管理面板：查看/添加/编辑/删除/启停 MCP 服务器，动态挂载到 Harness",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  }
+}

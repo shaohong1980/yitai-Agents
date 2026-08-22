@@ -1,0 +1,8 @@
+- insert:
+    - id: bailongma-memory
+      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-memory/src/index.ts'
+      config:
+        llmRecognition: true
+        llm:
+          provider: deepseek-official
+          model: deepseek-v4-flash

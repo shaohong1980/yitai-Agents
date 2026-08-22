@@ -1,0 +1,12 @@
+{
+  "name": "@myworkspace/plugin-dsh-utils",
+  "version": "0.1.0",
+  "private": true,
+  "description": "零依赖通用工具集（借鉴 omdsh-dev/dsh-toolkit）：时间/计算/JSON/编码/正则/CSV",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "workspace:^"
+  }
+}

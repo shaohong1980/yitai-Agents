@@ -1,0 +1,54 @@
+# Marvis Workbench 主 patch 覆盖层
+# 由 `pnpm dsh web --patch ./cordis.patch.yml` 加载。
+# 采用绝对 file URL 引用本地插件，官方 Harness 代码零改动。
+
+- insert:
+    - id: workbench-hello
+      name: 'file:///E:/Myworkspace/plugins/plugin-hello/src/index.ts'
+
+    - id: bailongma-memory
+      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-memory/src/index.ts'
+      config:
+        injectLimit: 6
+        decayDays: 60
+        heuristicProfile: true
+        llmRecognition: true
+        llm:
+          provider: deepseek-official
+          model: deepseek-v4-flash
+
+    - id: marvis-orchestrator
+      name: 'file:///E:/Myworkspace/plugins/plugin-marvis-orchestrator/src/index.ts'
+      config:
+        port: 3888
+        tickIntervalMs: 4200
+        liveDelegation: true
+        subagentProvider: spawn
+
+    - id: bailongma-voice
+      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-voice/src/index.ts'
+      config:
+        port: 3889
+        provider: ''
+        openai:
+          voice: nova
+
+    - id: bailongma-tokenjuice
+      name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-tokenjuice/src/index.ts'
+      config:
+        thresholdChars: 6000
+        whitelist: [read, glob, grep, read_image, memory_search, memory_recall, list_dir]
+
+    - id: dsh-utils
+      name: 'file:///E:/Myworkspace/plugins/plugin-dsh-utils/src/index.ts'
+
+    - id: dsh-mcp-panel
+      name: 'file:///E:/Myworkspace/plugins/plugin-dsh-mcp-panel/src/index.ts'
+      config:
+        port: 3890
+
+# 顶层配置覆盖：让 skill-filesystem 额外扫描工作台技能目录
+- id: skill-filesystem
+  config:
+    customSkillDirs:
+      - 'E:/Myworkspace/skills'

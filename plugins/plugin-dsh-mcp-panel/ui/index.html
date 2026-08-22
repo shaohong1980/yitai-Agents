@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP 服务器管理面板</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+  body{background:#0b0e16;color:#e7edf7;min-height:100vh;padding:24px}
+  h1{font-size:20px;margin-bottom:4px}
+  .sub{color:#8a94ad;font-size:12px;margin-bottom:20px}
+  .top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+  .btn{padding:8px 16px;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}
+  .btn-primary{background:#3b6ef6;color:#fff}
+  .btn-sm{padding:5px 10px;font-size:12px;border-radius:6px}
+  .btn-ghost{background:#161d2e;color:#a7b0c6;border:1px solid #232b3d}
+  .btn-del{background:#3a1d24;color:#ff8a8a;border:1px solid #5a2a35}
+  .card{background:#141926;border:1px solid #232b3d;border-radius:12px;padding:14px 16px;margin-bottom:10px;display:flex;align-items:center;gap:14px}
+  .card .dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .st-connected{background:#22b07d}.st-pending{background:#e8a13a}.st-failed{background:#e05a5a}.st-disabled{background:#4a5670}
+  .card .name{font-weight:700;font-size:14px}
+  .card .meta{color:#8a94ad;font-size:11px;margin-top:2px}
+  .card .st-tag{font-size:11px;color:#8a94ad;margin-left:auto;margin-right:12px}
+  .card .ops{display:flex;gap:6px;flex:none}
+  form{background:#141926;border:1px solid #232b3d;border-radius:12px;padding:18px;margin-bottom:20px;display:none}
+  form.open{display:block}
+  form h3{font-size:14px;margin-bottom:12px}
+  .row{display:flex;gap:10px;margin-bottom:10px;align-items:center}
+  .row label{width:90px;font-size:12px;color:#a7b0c6;flex:none}
+  .row input,.row select{flex:1;height:34px;border:1px solid #232b3d;border-radius:8px;background:#0e121b;color:#e7edf7;padding:0 10px;font-size:13px;outline:none}
+  .row input:focus{border-color:#3b6ef6}
+  .env-args{font-size:11px;color:#8a94ad}
+  .hint{font-size:11px;color:#5f6b80;margin-top:6px;line-height:1.6}
+  #tip{position:fixed;left:50%;top:20px;transform:translateX(-50%);background:#fff;color:#1f2430;padding:9px 20px;border-radius:10px;font-size:13px;opacity:0;transition:all .3s;z-index:99;pointer-events:none}
+  #tip.show{opacity:1}
+</style>
+</head>
+<body>
+<h1>🧩 MCP 服务器管理</h1>
+<div class="sub">管理 DeepSeek Harness 的 MCP 服务器 · 修改后即时挂载，无需重启</div>
+
+<div class="top">
+  <button class="btn btn-primary" id="btn-add">＋ 添加服务器</button>
+  <button class="btn btn-ghost" id="btn-refresh">🔄 刷新</button>
+</div>
+
+<form id="form">
+  <h3 id="form-title">添加 MCP 服务器</h3>
+  <div class="row"><label>名称</label><input id="f-name" placeholder="如 memory / filesystem / git（1-32位字母数字_-）"></div>
+  <div class="row"><label>传输方式</label>
+    <select id="f-transport">
+      <option value="stdio">stdio（本地进程）</option>
+      <option value="streamable-http">streamable-http（远程 URL）</option>
+    </select>
+  </div>
+  <div class="row" id="row-cmd"><label>命令</label><input id="f-command" placeholder="如 npx"></div>
+  <div class="row" id="row-args"><label>参数</label><input id="f-args" placeholder="如 -y @modelcontextprotocol/server-memory（空格分隔）"></div>
+  <div class="row" id="row-url" style="display:none"><label>URL</label><input id="f-url" placeholder="https://mcp.example.com/mcp"></div>
+  <div class="env-args" id="env-inputs">环境变量（KEY=value，每行一个）</div>
+  <textarea id="f-env" style="width:100%;height:60px;border:1px solid #232b3d;border-radius:8px;background:#0e121b;color:#e7edf7;padding:8px;font-size:12px;margin:6px 0 12px"></textarea>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-primary" id="btn-save">保存</button>
+    <button class="btn btn-ghost" id="btn-cancel">取消</button>
+  </div>
+  <div class="hint">常用示例：<br>
+    · stdio 内存：命令 npx，参数 <code>-y @modelcontextprotocol/server-memory</code><br>
+    · stdio 文件系统：命令 npx，参数 <code>-y @modelcontextprotocol/server-filesystem E:/Myworkspace</code><br>
+    · 远程：streamable-http，URL 填 <code>https://mcp.example.com/mcp</code>
+  </div>
+</form>
+
+<div id="list"></div>
+
+<div id="tip"></div>
+
+<script>
+let servers = [];
+let editing = null;
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  return res.json();
+}
+function toast(msg) { const t = document.getElementById('tip'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 2000); }
+
+function statusTag(st) { return st.status === 'connected' ? '已连接' : st.status === 'failed' ? '失败' : st.status === 'pending' ? '连接中' : '已停用'; }
+
+async function render() {
+  servers = await api('/api/servers');
+  const list = document.getElementById('list');
+  if (servers.length === 0) { list.innerHTML = '<div class="card" style="color:#8a94ad">暂无 MCP 服务器，点「添加」配置一个。</div>'; return; }
+  list.innerHTML = servers.map(s => `
+    <div class="card">
+      <span class="dot st-${s.status.status}"></span>
+      <div>
+        <div class="name">${s.serverName}</div>
+        <div class="meta">${s.transport} · ${s.transport === 'stdio' ? (s.command || '') + ' ' + (s.args || []).join(' ') : s.url} · ${s.enabled ? '启用' : '停用'}</div>
+      </div>
+      <span class="st-tag">${statusTag(s.status)}</span>
+      <div class="ops">
+        <button class="btn btn-sm btn-ghost" onclick="edit('${s.serverName}')">编辑</button>
+        <button class="btn btn-sm btn-ghost" onclick="toggle('${s.serverName}')">${s.enabled ? '停用' : '启用'}</button>
+        <button class="btn btn-sm btn-del" onclick="remove('${s.serverName}')">删除</button>
+      </div>
+    </div>`).join('');
+}
+
+function openForm(s) {
+  editing = s || null;
+  document.getElementById('form').classList.add('open');
+  document.getElementById('form-title').textContent = s ? '编辑服务器 · ' + s.serverName : '添加 MCP 服务器';
+  document.getElementById('f-name').value = s ? s.serverName : '';
+  document.getElementById('f-name').disabled = !!s;
+  document.getElementById('f-transport').value = s ? s.transport : 'stdio';
+  document.getElementById('f-command').value = s ? (s.command || '') : '';
+  document.getElementById('f-args').value = s ? (s.args || []).join(' ') : '';
+  document.getElementById('f-url').value = s ? (s.url || '') : '';
+  document.getElementById('f-env').value = s ? Object.entries(s.env || {}).map(([k, v]) => k + '=' + v).join('\n') : '';
+  onTransportChange();
+}
+function closeForm() { document.getElementById('form').classList.remove('open'); editing = null; }
+function onTransportChange() {
+  const t = document.getElementById('f-transport').value;
+  document.getElementById('row-cmd').style.display = t === 'stdio' ? 'flex' : 'none';
+  document.getElementById('row-args').style.display = t === 'stdio' ? 'flex' : 'none';
+  document.getElementById('row-url').style.display = t === 'streamable-http' ? 'flex' : 'none';
+}
+function parseEnv(text) {
+  const env = {};
+  String(text || '').split('\n').forEach(l => { const i = l.indexOf('='); if (i > 0) env[l.slice(0, i).trim()] = l.slice(i + 1).trim(); });
+  return env;
+}
+async function save() {
+  const name = document.getElementById('f-name').value.trim();
+  const transport = document.getElementById('f-transport').value;
+  const payload = {
+    serverName: name, transport,
+    command: document.getElementById('f-command').value.trim() || undefined,
+    args: document.getElementById('f-args').value.trim() ? document.getElementById('f-args').value.trim().split(/\s+/) : [],
+    url: document.getElementById('f-url').value.trim() || undefined,
+    env: parseEnv(document.getElementById('f-env').value),
+    enabled: true,
+  };
+  const r = editing
+    ? await api('/api/servers/' + encodeURIComponent(name), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+    : await api('/api/servers', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  if (r.error) { toast('❌ ' + r.error); return; }
+  toast('✅ 已保存 ' + name);
+  closeForm(); render();
+}
+async function toggle(name) {
+  await api('/api/servers/' + encodeURIComponent(name) + '/toggle', { method: 'POST' });
+  render();
+}
+async function remove(name) {
+  if (!confirm('删除服务器 ' + name + '？')) return;
+  await api('/api/servers/' + encodeURIComponent(name), { method: 'DELETE' });
+  toast('已删除 ' + name); render();
+}
+function edit(name) {
+  const s = servers.find(x => x.serverName === name);
+  if (s) openForm(s);
+}
+
+document.getElementById('btn-add').addEventListener('click', () => openForm(null));
+document.getElementById('btn-cancel').addEventListener('click', closeForm);
+document.getElementById('btn-save').addEventListener('click', save);
+document.getElementById('btn-refresh').addEventListener('click', render);
+document.getElementById('f-transport').addEventListener('change', onTransportChange);
+
+render();
+setInterval(render, 5000);
+</script>
+</body>
+</html>
+

@@ -1,0 +1,13 @@
+{
+  "name": "@myworkspace/plugin-marvis-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Marvis 1+5 多 Agent 办公室编排器：团队引擎 + Tick 心跳 + 可视化面板",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "ws": "^8.0.0"
+  }
+}

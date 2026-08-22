@@ -939,8 +939,19 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
       sender: 'yitai', name: '易总管', role: 'agent',
       text: `收到「${title}」！${yitaiDispatch(userText)}`, ts: Date.now(),
     })
-    // 群聊成员:易台已移除(外部工作站/任务/会议仍可用)
-    const groupMembers = EXTERNAL_AGENTS
+    // @ 定向：消息里 @了谁就只发给谁（支持 id 或中文名），没 @ 则广播全部
+    let groupMembers = EXTERNAL_AGENTS
+    const mentioned = new Set<string>()
+    const mentionRe = /@([^\s@，。,。!！?？]+)/g
+    let mm: RegExpExecArray | null
+    while ((mm = mentionRe.exec(userText)) !== null) {
+      const name = mm[1]!.toLowerCase()
+      for (const a of EXTERNAL_AGENTS) {
+        if (name === a.id || name === a.name.toLowerCase()
+          || name === a.name.replace(/[^a-z0-9]/gi, '').toLowerCase()) mentioned.add(a.id)
+      }
+    }
+    if (mentioned.size > 0) groupMembers = EXTERNAL_AGENTS.filter(a => mentioned.has(a.id))
     const jobs = groupMembers.map(async (a) => {
       try {
         const controller = new AbortController()

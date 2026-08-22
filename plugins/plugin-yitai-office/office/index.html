@@ -132,8 +132,9 @@
   .agent:hover{filter:drop-shadow(0 6px 12px rgba(var(--accent-rgb),.4))}
   .agent.at-table{z-index:8}
   .agent.selected .ring{opacity:1}
-  .ring{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
-    width:60px;height:18px;border:2px solid var(--accent);border-radius:50%;
+  .ring{position:absolute;left:50%;top:44px;transform:translateX(-50%);
+    width:64px;height:64px;border-radius:50%;border:2px solid var(--accent);
+    box-shadow:0 0 16px rgba(59,110,246,.6), inset 0 0 12px rgba(59,110,246,.28);
     opacity:0;transition:opacity .2s;animation:ringPulse 1.6s infinite}
   @keyframes ringPulse{50%{transform:translateX(-50%) scale(1.12)}}
   .char{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);width:50px;height:60px}
@@ -254,6 +255,23 @@
     justify-content:center;font-size:11px;color:#fff;flex-shrink:0}
   .mp-row .mp-role{font-size:10px;color:var(--sub);white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis}
   #m-participants-box{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  /* 角色职责弹窗 */
+  .agent-pop{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);
+    background:linear-gradient(160deg,var(--panel),var(--panel2));border:1px solid var(--line-soft);
+    border-radius:14px;padding:16px 18px;min-width:280px;max-width:340px;
+    box-shadow:0 20px 60px rgba(0,0,0,.65);z-index:200}
+  .agent-pop .ap-close{position:absolute;top:8px;right:12px;font-size:14px;color:var(--sub);cursor:pointer;user-select:none}
+  .agent-pop .ap-close:hover{color:var(--ink)}
+  .agent-pop .ap-head{display:flex;align-items:center;gap:10px}
+  .agent-pop .ap-avatar{width:42px;height:42px;border-radius:10px;display:flex;align-items:center;
+    justify-content:center;font-size:17px;color:#fff;flex-shrink:0}
+  .agent-pop .ap-name{font-size:15px;font-weight:800;color:var(--ink)}
+  .agent-pop .ap-role{font-size:11px;color:var(--sub);margin-top:2px}
+  .agent-pop .ap-status{margin-left:auto;font-size:10px;padding:3px 9px;border-radius:20px;color:#fff;white-space:nowrap}
+  .agent-pop .ap-desc{font-size:12px;color:var(--sub);line-height:1.7;margin-top:10px;
+    border-top:1px dashed var(--line);padding-top:10px}
+  .agent-pop .ap-kv{display:flex;justify-content:space-between;font-size:11px;margin-top:8px;color:var(--sub)}
+  .agent-pop .ap-kv b{color:var(--ink);font-weight:600;max-width:60%;text-align:right}
   .theme-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
   .theme-card{border:2px solid var(--line);border-radius:12px;padding:10px;cursor:pointer;transition:all .2s;background:var(--input-bg)}
   .theme-card:hover{border-color:var(--accent)}
@@ -471,6 +489,8 @@
 
 <div id="toast"></div>
 
+<div id="agent-pop" class="agent-pop" style="display:none"></div>
+
 <div id="settings-modal" class="modal hidden">
   <div class="modal-mask" data-close></div>
   <div class="modal-body">
@@ -649,7 +669,6 @@ AGENTS.forEach(a => {
       <div class="scarf" style="background:${a.scarf}"></div>
     </div>
     <div class="name-tag">${a.name}<small>${a.role}</small><span class="status-dot st-idle"></span></div>`;
-  w.addEventListener('click', () => selectAgent(a.id));
   floor.appendChild(w);
   Object.assign(el[a.id], {
     wrap: w, char: w.querySelector('.char'), dot: w.querySelector('.status-dot'),
@@ -762,7 +781,46 @@ function selectAgent(id) {
   selectedId = id;
   document.querySelectorAll('.agent').forEach(n => n.classList.remove('selected'));
   el[id].wrap.classList.add('selected');
+  showAgentPop(id);
 }
+/* 点击角色弹出职责档案卡（再点同角色/点外部/✕ 关闭） */
+function showAgentPop(id) {
+  const a = AGENTS.find(x => x.id === id), s = state[id];
+  if (!a || !s) return;
+  const pop = document.getElementById('agent-pop');
+  const meta = ROLE_META[id] || {};
+  const letter = meta.letter || String(a.name).slice(0, 1);
+  pop.innerHTML = `<span class="ap-close" onclick="hideAgentPop()">✕</span>
+    <div class="ap-head">
+      <div class="ap-avatar" style="background:${a.scarf}">${esc(letter)}</div>
+      <div>
+        <div class="ap-name">${esc(a.name)}</div>
+        <div class="ap-role">${esc(a.role)}</div>
+      </div>
+      <span class="ap-status" style="background:${STATUS_COLOR[s.status]}">${STATUS_CN[s.status]}</span>
+    </div>
+    <div class="ap-desc">${esc(a.desc)}</div>
+    <div class="ap-kv"><span>当前任务</span><b>${esc(s.task || '无')}</b></div>
+    <div class="ap-kv"><span>位置</span><b>${s.seat >= 0 ? '认知图谱 · 汇报位' : '自己的工位'}</b></div>
+    <div class="ap-kv"><span>累计完成</span><b>${s.done} 件</b></div>`;
+  pop.style.display = 'block';
+}
+function hideAgentPop() { document.getElementById('agent-pop').style.display = 'none'; }
+/* 点击角色：再次点击同角色关闭弹窗 */
+document.querySelectorAll('.agent').forEach(n => {
+  n.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const id = n.id.replace('agent-', '');
+    if (id === selectedId && document.getElementById('agent-pop').style.display === 'block') hideAgentPop();
+    else selectAgent(id);
+  });
+});
+/* 点击弹窗外部区域关闭 */
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('agent-pop');
+  if (pop.style.display !== 'block') return;
+  if (!pop.contains(e.target) && !e.target.closest('.agent')) hideAgentPop();
+});
 
 /* ================= 统计 & 时钟 ================= */
 function refreshStats() {

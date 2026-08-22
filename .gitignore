@@ -23,3 +23,6 @@ Thumbs.db
 
 # Yitai office runtime state
 .yitai-office/
+
+# Voice API keys (real keys are saved here by the office panel UI — never commit)
+plugins/plugin-yitai-office/office/voice-config.json

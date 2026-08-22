@@ -1,0 +1,20 @@
+{
+  "tts_provider": "browser",
+  "asr_provider": "browser",
+  "minimax": {
+    "api_key": "",
+    "group_id": "",
+    "model": "speech-02-hd",
+    "voice": "female-shaonv"
+  },
+  "doubao": {
+    "api_key": "",
+    "model": "seed-tts-2.0",
+    "voice": "zh_female_xiaohe_uranus_bigtts"
+  },
+  "xunfei": {
+    "app_id": "",
+    "api_key": "",
+    "api_secret": ""
+  }
+}

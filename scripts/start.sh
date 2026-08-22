@@ -13,9 +13,11 @@
 set -e
 cd "$(dirname "$0")/.."
 WORKSPACE="$(pwd)"
+# node/pnpm 是原生 Windows 程序，MSYS 路径（/e/...）会被误解析，统一转 Windows 风格
+WORKSPACE_WIN="$(cygpath -w "$WORKSPACE" 2>/dev/null || echo "$WORKSPACE")"
 
 # --- 环境变量优先，默认探测 ---
-HARNESS_DIR="${HARNESS_DIR:-$WORKSPACE/../deepseek-harness}"
+HARNESS_DIR="${HARNESS_DIR:-$(cd "$WORKSPACE/../deepseek-harness" 2>/dev/null && pwd || echo "$WORKSPACE/../deepseek-harness")}"
 NODE_BIN="${NODE_BIN:-}"
 PNPM_BIN="${PNPM_BIN:-}"
 
@@ -36,10 +38,18 @@ if [ -z "$NODE_BIN" ] || [ ! -f "$NODE_BIN" ]; then
 fi
 
 if [ -z "$PNPM_BIN" ]; then
-  if [ -f "$WORKSPACE/node_modules/pnpm/bin/pnpm.cjs" ]; then
-    PNPM_BIN="$WORKSPACE/node_modules/pnpm/bin/pnpm.cjs"
-  else
-    PNPM_BIN="$(command -v pnpm || true)"
+  for cand in \
+    "$WORKSPACE/node_modules/pnpm/bin/pnpm.cjs" \
+    "D:/node20/node_modules/pnpm/bin/pnpm.cjs" \
+    "$HOME/AppData/Local/hermes/node/node_modules/pnpm/bin/pnpm.cjs"; do
+    if [ -f "$cand" ]; then PNPM_BIN="$cand"; break; fi
+  done
+fi
+if [ -z "$PNPM_BIN" ]; then
+  # 兜底：PATH 里的 pnpm（MSYS 路径需转 Windows 风格，否则 node 会误解析）
+  local_pnpm="$(command -v pnpm || true)"
+  if [ -n "$local_pnpm" ]; then
+    PNPM_BIN="$(cygpath -w "$local_pnpm" 2>/dev/null || echo "$local_pnpm")"
   fi
 fi
 if [ -z "$PNPM_BIN" ]; then
@@ -58,4 +68,4 @@ export PATH="$(dirname "$NODE_BIN"):$PATH"
 echo "[start] Node: $("$NODE_BIN" --version)  pnpm: $("$NODE_BIN" "$PNPM_BIN" --version)  PATH-node: $(node --version 2>/dev/null || echo n/a)"
 
 cd "$HARNESS_DIR"
-"$NODE_BIN" "$PNPM_BIN" dsh web --patch "$WORKSPACE/cordis.patch.yml" "$@"
+"$NODE_BIN" "$PNPM_BIN" dsh web --patch "$WORKSPACE_WIN/cordis.patch.yml" "$@"

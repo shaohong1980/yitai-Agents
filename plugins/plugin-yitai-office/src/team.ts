@@ -215,9 +215,17 @@ export class YitaiTeam {
     return task
   }
 
-  /** 自主 tick：空闲员工随机开始工作/思考/休息 */
-  tick(): void {
+  /** 自主 tick：有任务时随机开始工作/思考/休息；无任务时把假工作员工复位为空闲。 */
+  tick(hasTasks = false): void {
     this.tickCounter++
+    if (!hasTasks) {
+      // 没有真实/待办任务：不做"假装工作"动画，把残留的 working/thinking 复位为空闲
+      for (const [id, s] of this.states) {
+        if (s.seat >= 0 || s.walking) continue
+        if (s.status !== 'idle') this.setStatus(id, 'idle')
+      }
+      return
+    }
     const pool = AGENTS.filter(a => a.id !== 'yitai')
     const available = pool.filter(a => {
       const s = this.states.get(a.id)!

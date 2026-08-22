@@ -762,7 +762,13 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   /* ============ 资源生命周期（ctx.effect 保证卸载时清理） ============ */
 
   ctx.effect(() => {
-    const tickTimer = tickInterval > 0 ? setInterval(() => team.tick(), tickInterval) : undefined
+    // tick 前先看办公室有没有待办任务：无任务时员工保持空闲（不做假装工作动画）
+    const tickTimer = tickInterval > 0 ? setInterval(() => {
+      void office.state().then((st) => {
+        const hasTasks = st?.tasks.some(t => t.status === 'pending' || t.status === 'claimed' || t.status === 'in_progress' || t.status === 'review') ?? false
+        team.tick(hasTasks)
+      }).catch(() => team.tick(false))
+    }, tickInterval) : undefined
     server.listen(port, '127.0.0.1', () => {
       ctx.logger.info(`[yitai-office] 🏢 多Agent办公室面板: http://127.0.0.1:${port}/`)
     })

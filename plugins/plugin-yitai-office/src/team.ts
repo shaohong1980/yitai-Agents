@@ -33,7 +33,12 @@ export interface AgentState {
 }
 
 export interface TeamEvent {
-  type: 'boot' | 'status' | 'task-start' | 'task-done' | 'report' | 'dispatch' | 'walk' | 'log'
+  type: 'boot' | 'status' | 'task-start' | 'task-done' | 'report' | 'dispatch' | 'walk' | 'log' | 'bubble' | 'group-msg' | 'task-created'
+  head?: string
+  text?: string
+  subject?: string
+  assigneeId?: string
+  assigneeName?: string
   agentId: string
   status?: AgentStatus
   task?: string
@@ -155,6 +160,41 @@ export class YitaiTeam {
     this.emitFn({ type: 'task-done', agentId: id, task, message: `✅ ${this.nameOf(id)} 完成「${task}」`, timestamp: Date.now() })
   }
 
+  /** "我"（人类老板）旁边的汇报位：boss 在 (50,84)，角色在其上方汇报。 */
+  private static readonly BOSS_REPORT = { x: 50, y: 71 }
+
+  /** 角色走到"我"旁边汇报（群聊联动），然后回工位。 */
+  walkToBoss(id: string, reportText?: string): void {
+    const s = this.states.get(id)
+    if (!s) return
+    if (s.seat >= 0 || s.walking || s.status === 'working') return  // 忙碌中跳过
+    s.walking = true
+    this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身走向你…`, timestamp: Date.now() })
+    const target = YitaiTeam.BOSS_REPORT
+    this.later(() => {
+      s.pos = { ...target }
+      s.walking = false
+      s.status = 'reporting'
+      const txt = reportText ?? ((s.task && s.task !== '—' && s.task !== '-') ? `正在处理「${s.task}」` : '当前待命，随时可以接单')
+      this.emitFn({ type: 'bubble', agentId: id, head: '📢 向你汇报', text: txt, timestamp: Date.now() })
+      this.emitFn({ type: 'walk', agentId: id, message: `📢 ${this.nameOf(id)} 向你汇报：${txt}`, timestamp: Date.now() })
+      // 稍后回工位
+      this.later(() => {
+        s.status = 'idle'
+        s.pos = { ...this.agentDef(id)!.desk }
+        this.emitFn({ type: 'walk', agentId: id, message: `↩ ${this.nameOf(id)} 汇报完毕，回到工位`, timestamp: Date.now() })
+      }, 2600)
+    }, 1000)
+  }
+
+  /** 全员依次来"我"旁边汇报（每个间隔 1.4s，模拟群聊下达指令后的报到）。 */
+  reportToBoss(reportText?: string): void {
+    const pool = AGENTS.filter(a => a.id !== 'yitai')
+    pool.forEach((a, i) => {
+      this.later(() => this.walkToBoss(a.id, reportText), i * 1400)
+    })
+  }
+
   /** 走向认知图谱汇报 */
   walkToTable(id: string): void {
     const s = this.states.get(id)
@@ -216,7 +256,7 @@ export class YitaiTeam {
   }
 
   /** 自主 tick：有任务时随机开始工作/思考/休息；无任务时把假工作员工复位为空闲。 */
-  tick(hasTasks = false): void {
+  tick(hasTasks = false, pendingTasks: string[] = []): void {
     this.tickCounter++
     if (!hasTasks) {
       // 没有真实/待办任务：不做"假装工作"动画，把残留的 working/thinking 复位为空闲
@@ -236,7 +276,10 @@ export class YitaiTeam {
     const s = this.states.get(a.id)!
     const r = Math.random()
     if (r < 0.4) {
-      const task = SAMPLE_TASKS[Math.floor(Math.random() * SAMPLE_TASKS.length)]
+      // 有真实待办任务时模拟执行真实任务（联动任务界面），否则用示例任务
+      const task = pendingTasks.length > 0
+        ? pendingTasks[Math.floor(Math.random() * pendingTasks.length)]
+        : SAMPLE_TASKS[Math.floor(Math.random() * SAMPLE_TASKS.length)]
       this.startTask(a.id, task)
       this.emitFn({ type: 'status', agentId: a.id, status: 'working', task, message: WORK_PH[Math.floor(Math.random() * WORK_PH.length)].replace('{}', task), timestamp: Date.now() })
     } else if (r < 0.6) {

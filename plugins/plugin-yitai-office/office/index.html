@@ -875,6 +875,21 @@ function handleMsg(msg) {
         bubble(msg.agentId, '⚙️ 接到任务', `收到！开始处理「${msg.task}」`);
       }
       break;
+    case 'group-msg':
+      log(`💬 群聊消息：${msg.text}`, 'sys');
+      break;
+    case 'bubble':
+      bubble(msg.agentId, msg.head || '💬', msg.text || '');
+      break;
+    case 'status':
+      log(msg.message);
+      break;
+    case 'task-created':
+      log(`📋 新任务「${msg.subject}」→ ${msg.assigneeName || msg.assigneeId || '待派'}`, 'sys');
+      if (msg.assigneeId && msg.assigneeId !== 'yitai' && AGENTS.find(a => a.id === msg.assigneeId)) {
+        bubble(msg.assigneeId, '⚙️ 接到任务', `收到「${msg.subject}」，准备执行`, 3000);
+      }
+      break;
     case 'meeting-opened':
       log(`🏢 新会议室「${msg.meetingTitle || ''}」已创建`, 'sys');
       if (!document.getElementById('meeting-modal').classList.contains('hidden')) loadMeetings();

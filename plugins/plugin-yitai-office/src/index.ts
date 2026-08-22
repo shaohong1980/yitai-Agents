@@ -561,6 +561,14 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
             if (ext) {
               void runTask(t)   // 仅外部 A2A agent 自动启动；员工/我走调度或手动
             }
+            // 任务 → 办公室联动：消息总线显示 + 指派角色接单气泡
+            broadcastJSON({
+              type: 'task-created',
+              subject: title,
+              assigneeId: t.assignee,
+              assigneeName: taskJSON(t).assigneeName ?? t.assignee,
+              timestamp: Date.now(),
+            })
             res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
             res.end(JSON.stringify({ ok: true, task: taskJSON(t), autoStarted: t.assignee !== 'yitai' }))
           } catch (e) {
@@ -760,8 +768,8 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
     // tick 前先看办公室有没有待办任务：无任务时员工保持空闲（不做假装工作动画）
     const tickTimer = tickInterval > 0 ? setInterval(() => {
       void office.state().then((st) => {
-        const hasTasks = st?.tasks.some(t => t.status === 'pending' || t.status === 'claimed' || t.status === 'in_progress' || t.status === 'review') ?? false
-        team.tick(hasTasks)
+        const pending = st?.tasks.filter(t => t.status === 'pending' || t.status === 'claimed' || t.status === 'in_progress' || t.status === 'review') ?? []
+        team.tick(pending.length > 0, pending.map(t => t.subject))
       }).catch(() => team.tick(false))
     }, tickInterval) : undefined
     server.listen(port, '127.0.0.1', () => {
@@ -882,7 +890,7 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
       params: { contextId: ctxId, message: { role: 'user', parts: [{ kind: 'text', text }] } },
     }
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 120_000)
+    const timer = setTimeout(() => controller.abort(), 30_000)
     try {
       const res = await fetch(url + '/', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -933,7 +941,10 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   }
 
   async function startGroupTurn(userText: string): Promise<void> {
-    if (groupTurnPromise) return  // 上一轮未结束,忽略
+    // 群聊 → 办公室联动：消息总线显示 + 全员来"我"旁边汇报（不依赖外部 A2A 状态）
+    broadcastJSON({ type: 'group-msg', text: String(userText || '').slice(0, 80), timestamp: Date.now() })
+    team.reportToBoss()
+    if (groupTurnPromise) return  // 上一轮 A2A 未结束：已联动，跳过重复调外部
     // 易总管先接单(本地响应,不消耗外部 A2A 上下文)
     const title = String(userText || '').slice(0, 40)
     groupHistory.push({
@@ -1003,7 +1014,7 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
       dependencies: t.dependencies,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
-      assigneeName: ext ? ext.name : (t.assignee === 'yitai' ? '我' : t.assignee),
+      assigneeName: ext ? ext.name : (t.assignee === 'yitai' ? '我' : (AGENTS.find(a => a.id === t.assignee)?.name ?? t.assignee)),
       assigneeUrl: ext?.url ?? null,
     }
   }

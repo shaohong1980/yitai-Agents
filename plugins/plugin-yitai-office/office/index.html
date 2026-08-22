@@ -47,9 +47,6 @@
   body.view-chat #harness-view{display:block;flex:1}
   body.view-chat main{display:none}
   body.view-chat footer{display:none}
-  body.view-group main{display:none}
-  body.view-group footer{display:none}
-  body.view-group #side{display:none}
   body.view-tasks main{display:none}
   body.view-tasks footer{display:none}
   body.view-tasks #side{display:none}
@@ -76,16 +73,17 @@
     background-size:46px 46px}
 
   /* 会议投屏（会议室墙幕） */
-  #screen{position:absolute;left:33%;top:4%;width:34%;height:13%;z-index:3;overflow:hidden;
+  #screen{position:absolute;left:33%;top:3%;width:34%;height:20%;z-index:3;overflow:hidden;
     background:linear-gradient(135deg,#0d1526,#18243c);border:1px solid var(--line-soft);
     border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.55)}
+  #screen .screen-log{position:absolute;inset:22px 0 0 0;overflow-y:auto;padding:5px 6px}
+  #screen .screen-log::-webkit-scrollbar{width:4px}
+  #screen .screen-log::-webkit-scrollbar-thumb{background:var(--line-soft);border-radius:2px}
+  #screen .log-item{background:rgba(20,28,45,.55);padding:5px 8px;margin-bottom:4px}
   #screen .screen-bar{height:22px;display:flex;align-items:center;padding:0 12px;
     font-size:10px;font-weight:800;color:var(--accent);letter-spacing:3px;
     background:rgba(59,110,246,.16);border-bottom:1px solid var(--line)}
-  #screen .screen-body{position:absolute;inset:22px 0 0 0;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:3px}
-  #screen .screen-clock{font-size:22px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
-  #screen .screen-status{font-size:10px;color:var(--sub);letter-spacing:1px}
 
   /* 工位（子 Agent 办公桌：显示器 + 桌面 + 椅子，角色坐在椅子上） */
   .desk{position:absolute;width:15%;height:8%;background:linear-gradient(var(--panel3),var(--panel3b));
@@ -199,25 +197,9 @@
   
   @keyframes ceoPulse{0%{border-color:rgba(var(--red-rgb),0);transform:translate(-50%,-50%) scale(.55)}60%{border-color:rgba(var(--red-rgb),.4);transform:translate(-50%,-50%) scale(1.1)}100%{border-color:rgba(var(--red-rgb),0);transform:translate(-50%,-50%) scale(1.35)}}
 
-  #side{width:320px;background:var(--panel);border-left:1px solid var(--line);
+  #side{width:380px;background:var(--panel);border-left:1px solid var(--line);
     display:flex;flex-direction:column;flex-shrink:0}
   #side .sec-title{padding:14px 18px 8px;font-size:12px;font-weight:700;color:var(--sub);letter-spacing:2px}
-  #agent-card{margin:0 16px;border:1px solid var(--line);border-radius:14px;padding:16px;
-    background:linear-gradient(160deg,var(--panel2),var(--input-bg))}
-  #agent-card .ac-top{display:flex;align-items:center;gap:12px}
-  .avatar{width:46px;height:46px;border-radius:12px;background:var(--avatar);position:relative;flex-shrink:0}
-  .avatar .a-eye{position:absolute;top:14px;width:9px;height:11px;background:var(--eye);border-radius:50%}
-  .avatar .a-eye::after{content:"";position:absolute;left:2px;top:3px;width:4px;height:5px;background:var(--avatar);border-radius:50%}
-  .avatar .a-eye.l{left:10px}.avatar .a-eye.r{right:10px}
-  .avatar .a-scarf{position:absolute;left:8px;right:8px;bottom:7px;height:7px;border-radius:4px}
-  #agent-card h3{font-size:16px;color:var(--ink)}
-  #agent-card .role{font-size:11px;color:var(--sub)}
-  .badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:6px;color:#fff;margin-top:4px}
-  #agent-card .desc{font-size:12px;color:var(--sub);line-height:1.6;margin-top:12px;
-    border-top:1px dashed var(--line);padding-top:10px}
-  .kv{display:flex;justify-content:space-between;font-size:11px;margin-top:8px;color:var(--sub)}
-  .kv b{color:var(--ink);font-weight:600;max-width:60%;text-align:right}
-  #log{flex:1;overflow-y:auto;padding:0 16px 12px;min-height:0}
   .log-item{font-size:11px;line-height:1.5;padding:8px 10px;border-radius:8px;margin-bottom:6px;
     background:var(--panel2);border-left:3px solid var(--accent);color:var(--ink);animation:slideIn .3s}
   .log-item .t{color:var(--gray);font-size:10px;margin-right:6px}
@@ -303,50 +285,6 @@
   .about-line{font-size:11px;color:var(--sub);margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
   .data-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 
-  /* ── 外部成员工作站(会议桌外部 A2A Agent) ── */
-  #ext-stations{display:flex;flex-direction:column;gap:6px;margin:0 0 4px}
-  .ext-station{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
-    border-radius:10px;padding:7px 10px;cursor:pointer;transition:background .15s,border-color .15s}
-  .ext-station:hover{background:var(--hover);border-color:var(--line-soft)}
-  .ext-station .es-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:background .3s}
-  .ext-station .es-dot.on{background:var(--green);box-shadow:0 0 6px rgba(34,176,125,.8)}
-  .ext-station .es-dot.off{background:var(--red);box-shadow:0 0 4px rgba(224,90,90,.5)}
-  .ext-station .es-dot.think{background:var(--yellow);animation:esPulse .9s ease-in-out infinite}
-  @keyframes esPulse{50%{opacity:.35}}
-  .ext-station .es-name{font-size:12px;font-weight:700;white-space:nowrap}
-  .ext-station .es-role{font-size:10px;color:var(--sub);white-space:nowrap}
-  .ext-station .es-status{font-size:10px;color:var(--sub);margin-left:auto}
-  .ext-station .es-status.on{color:var(--green)}
-  .ext-station .es-status.off{color:var(--red)}
-
-  /* ── 群聊视图(微信群风格) ── */
-  body.view-group #group-view{display:flex}
-  #group-view{display:none;flex:1;min-width:0;flex-direction:column;background:#ededed}
-  .grp-head{height:62px;background:var(--panel);border-bottom:1px solid var(--line);
-    display:flex;align-items:center;gap:14px;padding:0 18px;flex-shrink:0;z-index:5}
-  .grp-title{font-size:15px;font-weight:800}
-  .grp-sub{font-size:11px;color:var(--sub);margin-top:2px}
-  .grp-members{display:flex;gap:8px;margin-left:auto;align-items:center}
-  .grp-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-    font-size:13px;font-weight:800;color:#fff;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.35)}
-  #grp-msgs{flex:1;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:14px;
-    background:
-      radial-gradient(ellipse at 50% 0%, rgba(59,110,246,.05) 0%, transparent 60%)}
-  .grp-msg{display:flex;gap:10px;max-width:80%}
-  .grp-msg.mine{flex-direction:row-reverse;align-self:flex-end}
-  .grp-msg .bubble{background:var(--panel3);border:1px solid var(--line);border-radius:12px;
-    padding:9px 13px;font-size:13px;line-height:1.65;word-break:break-word;white-space:pre-wrap}
-  .grp-msg.mine .bubble{background:var(--accent);border-color:transparent;color:#fff}
-  .grp-msg .meta{font-size:10px;color:var(--sub);margin-bottom:3px;padding:0 2px}
-  .grp-msg.mine .meta{text-align:right}
-  .grp-thinking{display:flex;gap:10px;align-items:center;color:var(--sub);font-size:12px}
-  .grp-thinking .dots::after{content:"…";animation:grpDots 1.2s steps(4) infinite}
-  @keyframes grpDots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}100%{content:""}}
-  .grp-input-row{display:flex;gap:10px;padding:12px 16px;background:var(--panel);
-    border-top:1px solid var(--line);flex-shrink:0}
-  #grp-input{flex:1;background:var(--input-bg);border:1px solid var(--line);border-radius:10px;
-    padding:10px 14px;color:var(--ink);font-size:13px;outline:none;transition:border-color .15s}
-  #grp-input:focus{border-color:var(--accent)}
 
   /* ── 任务看板视图 ── */
   body.view-tasks #tasks-view{display:flex}
@@ -437,7 +375,6 @@
   <div class="view-switch">
     <button class="vs-btn active" data-view="office" title="多Agent办公室 · 球形图谱与员工">🏢 办公室</button>
     <button class="vs-btn" data-view="chat" title="DeepSeek Harness 主对话（完整工具/记忆/插件）">💬 主对话</button>
-          <button class="vs-btn" data-view="group" title="群聊：与全部 Agent 微信群式对话">👥 群聊</button>
           <button class="vs-btn" data-view="tasks" title="任务看板：派活、执行、验收审批">📋 任务</button>
           <button class="vs-btn" data-view="graph" title="知识图谱：群聊与会议主题沉淀">🔮 图谱</button>
   </div>
@@ -461,15 +398,11 @@
     <div id="floor">
       <div id="view-guide">
       <span>🏢 办公室<b>看全局</b></span><span style="color:var(--line-soft)">|</span>
-      <span class="vg-item" onclick="location.href='/group-chat'">👥 群聊<b>出想法</b></span><span style="color:var(--line-soft)">|</span>
       <span class="vg-item" onclick="setView('tasks')">📋 任务<b>落交付</b></span>
     </div>
   <div id="screen">
-        <div class="screen-bar">YITAI 会议室</div>
-        <div class="screen-body">
-          <div class="screen-clock" id="screen-clock">00:00:00</div>
-          <div class="screen-status" id="screen-status">● 会议就绪 · 派发任务或 @ 员工开始讨论</div>
-        </div>
+        <div class="screen-bar">📡 消息总线 · 实时日志</div>
+        <div class="screen-log" id="screen-log"></div>
       </div>
       <div id="round-table">
         <div class="rt-glow"></div>
@@ -495,21 +428,14 @@
         </div>
   </div>
   <div id="side">
-    <div class="sec-title">🤝 外部成员 · 会议桌</div>
-    <div id="ext-stations"><div style="color:var(--sub);font-size:11px">加载中…</div></div>
-    <div class="sec-title" style="margin-top:8px">AGENT 档案</div>
-    <div id="agent-card"><div style="color:var(--sub);font-size:12px">点击员工查看档案</div></div>
-    <div class="sec-title" style="margin-top:6px">消息总线 · 实时日志</div>
-    <div id="log"></div>
+    <div class="sec-title">👥 群聊 · 五 Agent 协同办公群</div>
+    <iframe id="group-frame" src="/group-chat" title="五 Agent 协同办公群"
+      style="flex:1;width:100%;border:0;background:#ededed;min-height:0"></iframe>
   </div>
   </main>
   <div id="harness-view">
     <div id="harness-placeholder">正在加载 DeepSeek Harness 主对话…</div>
     <iframe id="harness-frame" title="DeepSeek Harness 主对话" allow="clipboard-read; clipboard-write" allowfullscreen></iframe>
-  </div>
-  <div id="group-view">
-    <iframe id="group-frame" src="/group-chat" title="五 Agent 协同办公群"
-      style="width:100%;height:100%;border:0;background:#ededed"></iframe>
   </div>
   <div id="tasks-view">
     <div class="tk-head">
@@ -788,7 +714,7 @@ function setStatus(id, status, task, bubbleMsg) {
   if (e.monitor) e.monitor.classList.toggle('on', status === 'working' || status === 'thinking');
   if (bubbleMsg) bubble(id, STATUS_CN[status] || status, bubbleMsg);
   refreshStats();
-  if (id === selectedId) renderCard();
+
 }
 function bubble(id, head, text, ms = 3200) {
   const e = el[id]; if (!e) return;
@@ -815,7 +741,7 @@ function packet(fromId, toId, color = '#3b6ef6') {
 }
 
 /* ================= 日志 ================= */
-const logBox = document.getElementById('log');
+const logBox = document.getElementById('screen-log');
 function log(msg, cls = '') {
   const t = new Date().toTimeString().slice(0, 8);
   const item = document.createElement('div');
@@ -825,33 +751,11 @@ function log(msg, cls = '') {
   while (logBox.children.length > 60) logBox.lastChild.remove();
 }
 
-/* ================= 档案卡 ================= */
-const card = document.getElementById('agent-card');
+/* ================= 员工选中高亮（档案卡已移除，群聊搬入右侧栏） ================= */
 function selectAgent(id) {
   selectedId = id;
   document.querySelectorAll('.agent').forEach(n => n.classList.remove('selected'));
   el[id].wrap.classList.add('selected');
-  renderCard();
-}
-function renderCard() {
-  const a = AGENTS.find(x => x.id === selectedId), s = state[selectedId];
-  if (!a || !s) return;
-  card.innerHTML = `
-    <div class="ac-top">
-      <div class="avatar">
-        <div class="a-eye l"></div><div class="a-eye r"></div>
-        <div class="a-scarf" style="background:${a.scarf}"></div>
-      </div>
-      <div>
-        <h3>${a.name}</h3>
-        <div class="role">${a.role}</div>
-        <span class="badge" style="background:${STATUS_COLOR[s.status]}">${STATUS_CN[s.status]}</span>
-      </div>
-    </div>
-    <div class="desc">${a.desc}</div>
-    <div class="kv"><span>当前任务</span><b>${s.task}</b></div>
-    <div class="kv"><span>位置</span><b>${s.seat >= 0 ? '认知图谱 · 汇报位' : '自己的工位'}</b></div>
-    <div class="kv"><span>累计完成任务</span><b>${s.done} 件</b></div>`;
 }
 
 /* ================= 统计 & 时钟 ================= */
@@ -869,7 +773,6 @@ function refreshStats() {
 setInterval(() => {
   const t = new Date().toTimeString().slice(0, 8);
   document.getElementById('clock').textContent = t;
-  const sc = document.getElementById('screen-clock'); if (sc) sc.textContent = t;
 }, 1000);
 
 /* ================= WebSocket 实时事件 ================= */
@@ -1107,43 +1010,7 @@ document.querySelectorAll('#settings-modal [data-close]').forEach(el => el.addEv
 
 /* ================= 会议室（多 Agent 会议系统） ================= */
 let currentMeeting = null;
-/* ================= 外部成员工作站(会议桌 5 个外部 A2A Agent) ================= */
-let extAgentList = []
-function renderExtStations(list) {
-  const box = document.getElementById('ext-stations');
-  if (!box) return;
-  box.innerHTML = '';
-  if (!list || !list.length) { box.innerHTML = '<div style="color:var(--sub);font-size:11px">暂无外部成员</div>'; return; }
-  list.forEach(a => {
-    const row = document.createElement('div');
-    row.className = 'ext-station';
-    row.innerHTML = `<span class="es-dot ${a.online ? 'on' : 'off'}"></span>
-      <span class="es-name">${esc(a.name)}</span>
-      <span class="es-role">${esc(a.role)}</span>
-      <span class="es-status ${a.online ? 'on' : 'off'}">${a.online ? '在线' : '离线'}</span>`;
-    row.title = `${a.url} — 点击对话`;
-    row.addEventListener('click', () => {
-      const msg = prompt(`💬 对 ${a.name} 说：`, '介绍一下你自己');
-      if (!msg) return;
-      const dot = row.querySelector('.es-dot');
-      dot.className = 'es-dot think';
-      const st = row.querySelector('.es-status');
-      st.textContent = '思考中…';
-      chatWithAgent({ id: a.id, name: a.name }, msg);
-      setTimeout(() => { dot.className = 'es-dot ' + (a.online ? 'on' : 'off'); st.textContent = a.online ? '在线' : '离线'; }, 4000);
-    });
-    box.appendChild(row);
-  });
-}
-function loadExtStations() {
-  fetch('/api/ext-agents')
-    .then(r => r.json())
-    .then(d => { if (d && d.agents) { extAgentList = d.agents; renderExtStations(d.agents); } })
-    .catch(() => {});
-}
-/* 启动即加载 + 每 20 秒健康轮询 */
-loadExtStations();
-setInterval(loadExtStations, 20000);
+
 
 /* 会议:一键填入外部 5 人 */
 document.getElementById('m-select-ext')?.addEventListener('click', () => {
@@ -1623,7 +1490,6 @@ function setView(view) {
   currentView = view;
   localStorage.setItem(VIEW_KEY, view);
   document.body.classList.toggle('view-chat', view === 'chat');
-  document.body.classList.toggle('view-group', view === 'group');
   document.body.classList.toggle('view-tasks', view === 'tasks');
   document.body.classList.toggle('view-graph', view === 'graph');
   document.querySelectorAll('.vs-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));

@@ -137,8 +137,8 @@ export function createYitaiOffice(
   /** 种子：固定工位员工。 */
   function seedMembers(): YitaiMember[] {
     return WORKER_DEFS.map((a) => ({
-      id: '',
-      name: a.id,
+      id: a.id,
+      name: a.name,
       role: a.role,
       status: 'idle' as const,
       joinedAt: Date.now(),

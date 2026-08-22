@@ -35,6 +35,7 @@ export interface AgentState {
 export interface TeamEvent {
   type: 'boot' | 'status' | 'task-start' | 'task-done' | 'report' | 'dispatch' | 'walk' | 'log' | 'bubble' | 'group-msg' | 'task-created'
   walking?: boolean
+  pos?: { x: number; y: number }
   head?: string
   text?: string
   subject?: string
@@ -170,12 +171,14 @@ export class YitaiTeam {
     if (!s) return
     if (s.seat >= 0 || s.walking || s.status === 'working') return  // 忙碌中跳过
     s.walking = true
+    if (s.status === 'sleep') this.setStatus(id, 'idle')  // 睡着的先唤醒再走
     this.setStatus(id, s.status)  // 同步前端走路动画
     this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身走向你…`, timestamp: Date.now() })
     const target = YitaiTeam.BOSS_REPORT
     this.later(() => {
       s.pos = { ...target }
       s.walking = false
+      this.emitFn({ type: 'walk', agentId: id, pos: { ...target }, message: `${this.nameOf(id)} 到达你身边`, timestamp: Date.now() })
       this.setStatus(id, 'reporting')
       const txt = reportText ?? ((s.task && s.task !== '—' && s.task !== '-') ? `正在处理「${s.task}」` : '当前待命，随时可以接单')
       this.emitFn({ type: 'bubble', agentId: id, head: '📢 向你汇报', text: txt, timestamp: Date.now() })
@@ -183,8 +186,9 @@ export class YitaiTeam {
       // 稍后回工位
       this.later(() => {
         s.status = 'idle'
-        s.pos = { ...this.agentDef(id)!.desk }
-        this.emitFn({ type: 'walk', agentId: id, message: `↩ ${this.nameOf(id)} 汇报完毕，回到工位`, timestamp: Date.now() })
+        const desk = { ...this.agentDef(id)!.desk }
+        s.pos = { ...desk }
+        this.emitFn({ type: 'walk', agentId: id, pos: { ...desk }, message: `↩ ${this.nameOf(id)} 汇报完毕，回到工位`, timestamp: Date.now() })
       }, 2600)
     }, 1000)
   }
@@ -206,19 +210,23 @@ export class YitaiTeam {
     this.seatBusy[idx] = id
     s.seat = idx
     s.walking = true
+    if (s.status === 'sleep') this.setStatus(id, 'idle')  // 睡着的先唤醒再走
     this.setStatus(id, s.status)  // 同步前端走路动画（walking class）
     this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身前往认知图谱…`, timestamp: Date.now() })
     const target = SEATS[idx]
     this.later(() => {
       s.pos = { ...target }
       s.walking = false
+      this.emitFn({ type: 'walk', agentId: id, pos: { ...target }, message: `${this.nameOf(id)} 到达汇报位`, timestamp: Date.now() })
       this.setStatus(id, 'reporting')  // 汇报形象（状态点蓝色）
       this.emitFn({ type: 'report', agentId: id, message: `${this.nameOf(id)} 在认知图谱向易总管汇报「${s.task}」`, timestamp: Date.now() })
       // 稍后回到工位
       this.later(() => {
         this.seatBusy[idx] = null
         s.seat = -1
-        s.pos = { ...this.agentDef(id)!.desk }
+        const desk = { ...this.agentDef(id)!.desk }
+        s.pos = { ...desk }
+        this.emitFn({ type: 'walk', agentId: id, pos: { ...desk }, message: `${this.nameOf(id)} 回到工位`, timestamp: Date.now() })
         this.setStatus(id, Math.random() < 0.3 ? 'sleep' : 'idle')
       }, 2400)
     }, 1150)

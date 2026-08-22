@@ -890,7 +890,14 @@ function handleMsg(msg) {
       log(`✅ <b>${nameOf(msg.agentId)}</b> 完成「${msg.task}」`, 'done');
       refreshStats();
       break;
-    case 'walk': log(msg.message); break;
+    case 'walk':
+      if (msg.pos && el[msg.agentId]) {
+        state[msg.agentId].pos = msg.pos;
+        el[msg.agentId].wrap.style.left = msg.pos.x + '%';
+        el[msg.agentId].wrap.style.top = msg.pos.y + '%';
+      }
+      log(msg.message);
+      break;
     case 'report':
       log(msg.message, 'yitai');
       bubble('yitai', '👔 易总管', `收到，「${state[msg.agentId]?.task || ''}」验收通过`, 2600);

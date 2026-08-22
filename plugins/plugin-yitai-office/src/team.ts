@@ -34,6 +34,7 @@ export interface AgentState {
 
 export interface TeamEvent {
   type: 'boot' | 'status' | 'task-start' | 'task-done' | 'report' | 'dispatch' | 'walk' | 'log' | 'bubble' | 'group-msg' | 'task-created'
+  walking?: boolean
   head?: string
   text?: string
   subject?: string
@@ -121,7 +122,7 @@ export class YitaiTeam {
     if (!s) return
     s.status = status
     if (task !== undefined) s.task = task
-    this.emitFn({ type: 'status', agentId: id, status, task: s.task, message: `${this.nameOf(id)} → ${status}`, timestamp: Date.now() })
+    this.emitFn({ type: 'status', agentId: id, status, task: s.task, walking: s.walking, message: `${this.nameOf(id)} → ${status}`, timestamp: Date.now() })
   }
 
   /** 让某位员工"开口说话"（AI 对话回显到面板气泡） */
@@ -169,12 +170,13 @@ export class YitaiTeam {
     if (!s) return
     if (s.seat >= 0 || s.walking || s.status === 'working') return  // 忙碌中跳过
     s.walking = true
+    this.setStatus(id, s.status)  // 同步前端走路动画
     this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身走向你…`, timestamp: Date.now() })
     const target = YitaiTeam.BOSS_REPORT
     this.later(() => {
       s.pos = { ...target }
       s.walking = false
-      s.status = 'reporting'
+      this.setStatus(id, 'reporting')
       const txt = reportText ?? ((s.task && s.task !== '—' && s.task !== '-') ? `正在处理「${s.task}」` : '当前待命，随时可以接单')
       this.emitFn({ type: 'bubble', agentId: id, head: '📢 向你汇报', text: txt, timestamp: Date.now() })
       this.emitFn({ type: 'walk', agentId: id, message: `📢 ${this.nameOf(id)} 向你汇报：${txt}`, timestamp: Date.now() })
@@ -204,11 +206,13 @@ export class YitaiTeam {
     this.seatBusy[idx] = id
     s.seat = idx
     s.walking = true
+    this.setStatus(id, s.status)  // 同步前端走路动画（walking class）
     this.emitFn({ type: 'walk', agentId: id, message: `🚶 ${this.nameOf(id)} 起身前往认知图谱…`, timestamp: Date.now() })
     const target = SEATS[idx]
     this.later(() => {
       s.pos = { ...target }
       s.walking = false
+      this.setStatus(id, 'reporting')  // 汇报形象（状态点蓝色）
       this.emitFn({ type: 'report', agentId: id, message: `${this.nameOf(id)} 在认知图谱向易总管汇报「${s.task}」`, timestamp: Date.now() })
       // 稍后回到工位
       this.later(() => {
@@ -263,6 +267,14 @@ export class YitaiTeam {
       for (const [id, s] of this.states) {
         if (s.seat >= 0 || s.walking) continue
         if (s.status !== 'idle') this.setStatus(id, 'idle')
+      }
+      // 15% 概率随机一名员工午休趴桌（让"睡觉"形象可见，办公室更真实）
+      if (Math.random() < 0.15) {
+        const rest = AGENTS.filter(a => a.id !== 'yitai' && this.states.get(a.id)?.status === 'idle')
+        if (rest.length > 0) {
+          const pick = rest[Math.floor(Math.random() * rest.length)]
+          this.setStatus(pick.id, 'sleep')
+        }
       }
       return
     }

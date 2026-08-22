@@ -871,9 +871,9 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   // ── 外部 A2A Agent(会议桌成员,与 meeting.ts 一致) ──
   const EXTERNAL_AGENTS: { id: string; name: string; role: string; url: string }[] = [
     { id: 'hermes', name: '爱马仕', role: '外部 · Hermes', url: 'http://127.0.0.1:9900' },
-    { id: 'claudecode', name: 'ClaudeCode', role: '外部 · 开发', url: 'http://127.0.0.1:9920' },
-    { id: 'openhuma', name: 'OpenHuman', role: '外部 · 编排', url: 'http://127.0.0.1:9930' },
-    { id: 'codex', name: 'Codex', role: '外部 · 编码', url: 'http://127.0.0.1:9940' },
+    { id: 'claudecode', name: '克劳德', role: '外部 · 开发', url: 'http://127.0.0.1:9920' },
+    { id: 'openhuma', name: '欧曼', role: '外部 · 编排', url: 'http://127.0.0.1:9930' },
+    { id: 'codex', name: '科德', role: '外部 · 编码', url: 'http://127.0.0.1:9940' },
   ]
 
   async function callExternalA2A(url: string, ctxId: string, text: string): Promise<string> {
@@ -918,10 +918,10 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   function yitaiDispatch(text: string): string {
     const t = String(text || '')
     let advice = ''
-    if (/代码|开发|程序|脚本|bug|部署|接口|测试|修复/.test(t)) advice = '涉及代码开发 → 建议 Codex / ClaudeCode 主责执行，我派活后跟进验收。'
+    if (/代码|开发|程序|脚本|bug|部署|接口|测试|修复/.test(t)) advice = '涉及代码开发 → 建议 科德 / 克劳德 主责执行，我派活后跟进验收。'
     else if (/文档|PPT|课件|公文|纪要|报告|方案|总结|培训/.test(t)) advice = '涉及文档产出 → 建议爱马仕(Hermes)主责起草，易台配合检索素材，我负责验收。'
-    else if (/检索|查询|搜索|资料|调研|数据|信息|新闻/.test(t)) advice = '涉及信息检索 → 建议易台主责检索，ClaudeCode 辅助分析，我汇总验收。'
-    else if (/图片|海报|设计|视频|音频|语音/.test(t)) advice = '涉及多媒体 → 建议 OpenHuman 主责，爱马仕协助排版，我验收质量。'
+    else if (/检索|查询|搜索|资料|调研|数据|信息|新闻/.test(t)) advice = '涉及信息检索 → 建议易台主责检索，克劳德 辅助分析，我汇总验收。'
+    else if (/图片|海报|设计|视频|音频|语音/.test(t)) advice = '涉及多媒体 → 建议 欧曼 主责，爱马仕协助排版，我验收质量。'
     else advice = '已接单，我来拆解分派给最合适的 Agent，执行后统一验收。'
     return advice + '\n(正式派单请到 📋 任务看板：建任务→指派→自动验货→你审批)'
   }
@@ -1479,7 +1479,7 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
 
   ctx.tools.register(defineTool({
     name: 'meeting_create',
-    description: '创建多Agent会议室并邀请参会者。参会者 id 可用：yitai(易台)/hermes(爱马仕)/openhuma(OpenHuman)/yitai(易总管)/zhuge(诸葛)/file(文件)/computer(电脑)/app(应用)/find(检索)，多个用逗号分隔。',
+    description: '创建多Agent会议室并邀请参会者。参会者 id 可用：yitai(易台)/hermes(爱马仕)/openhuma(欧曼)/yitai(易总管)/zhuge(诸葛)/file(文件)/computer(电脑)/app(应用)/find(检索)，多个用逗号分隔。',
     parameters: {
       title: { type: 'string', description: '会议主题', required: true },
       participants: { type: 'string', description: '参会者 id，逗号分隔（如 yitai,hermes,openhuma）', required: true },

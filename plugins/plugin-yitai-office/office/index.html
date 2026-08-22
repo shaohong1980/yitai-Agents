@@ -157,10 +157,11 @@
   .char.sleep{transform:translateX(-50%) rotate(9deg)}
   .char.sleep .eye{height:3px;top:31px;border-radius:2px}
   .char.sleep .eye::after{display:none}
-  .name-tag{position:absolute;left:50%;bottom:0;transform:translateX(-50%);
-    background:var(--panel3);border:1px solid var(--line-soft);border-radius:8px;padding:2px 9px;
-    font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.4)}
-  .name-tag small{display:block;font-size:9px;font-weight:500;color:var(--sub);text-align:center}
+  .name-tag{position:absolute;left:2px;top:2px;transform:none;
+    background:rgba(16,20,31,.78);border:1px solid var(--line-soft);border-radius:8px;padding:2px 7px;
+    font-size:11px;font-weight:700;color:var(--ink);white-space:nowrap;
+    box-shadow:0 2px 6px rgba(0,0,0,.4);backdrop-filter:blur(3px);z-index:6;text-align:left}
+  .name-tag small{display:block;font-size:9px;font-weight:500;color:var(--sub);text-align:left;margin-top:1px}
   .status-dot{position:absolute;right:-4px;top:-4px;width:11px;height:11px;border-radius:50%;
     border:2px solid var(--panel3);box-shadow:0 1px 3px rgba(0,0,0,.3)}
   .st-working{background:var(--green);animation:blink 1s infinite}
@@ -453,9 +454,9 @@
           <option value="auto" selected>🤖 自动派单(交易总管)</option>
           <option value="me">我(手动执行)</option>
           <option value="hermes">爱马仕(Hermes)</option>
-          <option value="claudecode">ClaudeCode</option>
-          <option value="openhuma">OpenHuman</option>
-          <option value="codex">Codex</option>
+          <option value="claudecode">克劳德</option>
+          <option value="openhuma">欧曼</option>
+          <option value="codex">科德</option>
         </select>
         <button class="btn btn-primary btn-sm" id="tk-add">➕ 建任务</button>
       </div>
@@ -582,7 +583,7 @@
   <div class="modal-mask" data-meeting-close></div>
   <div class="modal-body" style="width:760px">
     <div class="modal-head">🏢 多 Agent 会议室 <button class="x" data-meeting-close>✕</button></div>
-    <div class="set-desc" style="font-size:11px">创建会议室 → 输入议题发言 → AI 员工轮番讨论 → 结束生成纪要（自动写入易台记忆库）。参会者 id：yitai(易总管) / hermes(爱马仕) / openhuma(OpenHuman) / claudecode / codex / zhuge / file / computer / app / find</div>
+    <div class="set-desc" style="font-size:11px">创建会议室 → 输入议题发言 → AI 员工轮番讨论 → 结束生成纪要（自动写入易台记忆库）。参会者 id：yitai(易总管) / hermes(爱马仕) / openhuma(欧曼) / claudecode(克劳德) / codex(科德) / zhuge(诸葛) / file(小文) / computer(小电) / app(小应) / find(小搜)</div>
     <div class="ext-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
       <input id="m-title" placeholder="会议主题（如：新系统架构评审）" style="flex:1;min-width:160px">
       <input id="m-participants" placeholder="参会者 id（逗号分隔）" style="flex:1;min-width:180px">
@@ -619,9 +620,9 @@ window.addEventListener('unhandledrejection', e => { window.__errs.push('PROMISE
 const AGENTS = [
   {id:'yitai', name:'易总管',   role:'主管 Agent',  scarf:'#ff7a59', desk:{x:12,y:22},
    desc:'办公室总管兼调度。接单、拆解、分派、验收，协调各工位排期与负载。'},
-  {id:'file',   name:'File Agent', role:'文件管理',  scarf:'#8b5cf6', desk:{x:12,y:53}, desc:'文件读写、归档、检索与版本管理。'},
-  {id:'computer',name:'Computer Agent', role:'电脑操作', scarf:'#22b07d', desk:{x:12,y:85}, desc:'桌面与系统级操作：开应用、跑脚本。'},
-  {id:'app',    name:'App Agent', role:'应用调度',   scarf:'#f5b731', desk:{x:88,y:22}, desc:'第三方 App / 连接器调用。'},
+  {id:'file',   name:'小文', role:'文件管理',  scarf:'#8b5cf6', desk:{x:12,y:53}, desc:'文件读写、归档、检索与版本管理。'},
+  {id:'computer',name:'小电', role:'电脑操作', scarf:'#22b07d', desk:{x:12,y:85}, desc:'桌面与系统级操作：开应用、跑脚本。'},
+  {id:'app',    name:'小应', role:'应用调度',   scarf:'#f5b731', desk:{x:88,y:22}, desc:'第三方 App / 连接器调用。'},
   {id:'zhuge',  name:'诸葛',   role:'规划参谋',    scarf:'#3b6ef6', desk:{x:88,y:53}, desc:'把模糊需求拆成可执行计划与问题链。'},
   {id:'find',   name:'小搜',   role:'检索专员',    scarf:'#0fb5ba', desk:{x:88,y:85}, desc:'搜索引擎与知识库检索专家。'},
 ];
@@ -660,15 +661,15 @@ AGENTS.forEach(a => {
   state[a.id] = { status: 'idle', task: '—', done: 0, load: 30, pos: { ...a.desk }, seat: -1, walking: false };
 });
 
-/* ================= 圆桌核心 AI 团队（易总管/爱马仕/OpenHuman/ClaudeCode/Codex） ================= */
+/* ================= 圆桌核心 AI 团队（易总管/爱马仕/欧曼/克劳德/科德） ================= */
 /* 后天八卦方位(上北下南):☰乾西北 ☱兑西 ☲离南 ☳震东 ☴巽东南 ☵坎北 ☶艮东北 ☷坤西南 */
 /* 后天八卦方位(上北下南左西右东):坎北/离南/震东/兑西/乾西北/坤西南/艮东北/巽东南 */
 /* 四方桌:每角色坐一条边(上北/下南/左西/右东),中央太极 */
 const ROUND_PARTICIPANTS = [
   { id:'hermes',    name:'爱马仕',    scarf:'#c084fc', seat:{x:50,y:31} },
-  { id:'claudecode',name:'ClaudeCode', scarf:'#fb923c', seat:{x:64,y:44} },
-  { id:'openhuma',  name:'OpenHuman', scarf:'#34d399', seat:{x:50,y:57} },
-  { id:'codex',     name:'Codex',     scarf:'#f472b6', seat:{x:36,y:44} },
+  { id:'claudecode',name:'克劳德', scarf:'#fb923c', seat:{x:64,y:44} },
+  { id:'openhuma',  name:'欧曼', scarf:'#34d399', seat:{x:50,y:57} },
+  { id:'codex',     name:'科德',     scarf:'#f472b6', seat:{x:36,y:44} },
 ];
 /* 四角卦符装饰 */
 const BAGUA_RING = [
@@ -1151,8 +1152,8 @@ renderTasks();
 /* ================= 知识图谱(基于 knowledge-sphere) ================= */
 const GR_AGENT_COLORS = {
   '爱马仕': '#3b6ef6', 'Hermes': '#3b6ef6', '我': '#e7edf7',
-  'ClaudeCode': '#22b07d', 'Claude Code': '#22b07d',
-  'OpenHuman': '#f5b731', 'Codex': '#8b5cf6',
+  'ClaudeCode': '#22b07d', 'Claude Code': '#22b07d', '克劳德': '#22b07d',
+  'OpenHuman': '#f5b731', '欧曼': '#f5b731', 'Codex': '#8b5cf6', '科德': '#8b5cf6',
 }
 function grColor(agents) {
   for (const a of agents || []) {
@@ -1350,8 +1351,8 @@ const ROLE_META = {
   yitai: { color: '#ff7a59', letter: '管' }, file: { color: '#8b5cf6', letter: '文' },
   computer: { color: '#22b07d', letter: '脑' }, app: { color: '#f5b731', letter: '用' },
   zhuge: { color: '#3b6ef6', letter: '诸' }, find: { color: '#0fb5ba', letter: '搜' },
-  hermes: { color: '#3b6ef6', letter: 'H' }, claudecode: { color: '#22b07d', letter: 'C' },
-  openhuma: { color: '#f5b731', letter: 'O' }, codex: { color: '#8b5cf6', letter: 'X' },
+  hermes: { color: '#3b6ef6', letter: '爱' }, claudecode: { color: '#22b07d', letter: '克' },
+  openhuma: { color: '#f5b731', letter: '欧' }, codex: { color: '#8b5cf6', letter: '科' },
   user: { color: '#3b6ef6', letter: '我' }, system: { color: '#8a94ad', letter: '系' },
 }
 function metaOf(id) { return ROLE_META[id] || { color: '#6b7690', letter: String(id || '?')[0].toUpperCase() } }

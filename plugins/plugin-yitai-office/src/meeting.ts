@@ -88,23 +88,23 @@ export interface MeetingCreateOpts {
   summarizeAfterChars?: number
 }
 
-/** 参会者注册表：办公室员工 + 爱马仕 / OpenHuman / ClaudeCode / Codex */
+/** 参会者注册表：办公室员工 + 爱马仕 / 欧曼 / 克劳德 / 科德 */
 export const MEETING_PARTICIPANTS: Record<string, ParticipantDef> = {
   yitai: {
     id: 'yitai', name: '易总管', role: '主管 Agent · 调度',
     persona: '你是易总管，办公室总管兼调度。有全局调度视角，善于掌控讨论节奏、总结分歧、拍板结论；同时协调排期、汇总子任务结果。发言直接、注重统筹与可行性。',
   },
   file: {
-    id: 'file', name: 'File Agent', role: '文件管理',
-    persona: '你是 File Agent，文件管理专家。关注文档、归档、检索与版本管理，发言会提示资料/文件层面的影响。',
+    id: 'file', name: '小文', role: '文件管理',
+    persona: '你是 小文，文件管理专家。关注文档、归档、检索与版本管理，发言会提示资料/文件层面的影响。',
   },
   computer: {
-    id: 'computer', name: 'Computer Agent', role: '电脑操作',
-    persona: '你是 Computer Agent，电脑操作专家。关注脚本、本地资源、系统级执行，发言会提示实现与执行层面的问题。',
+    id: 'computer', name: '小电', role: '电脑操作',
+    persona: '你是 小电，电脑操作专家。关注脚本、本地资源、系统级执行，发言会提示实现与执行层面的问题。',
   },
   app: {
-    id: 'app', name: 'App Agent', role: '应用调度',
-    persona: '你是 App Agent，应用调度专家。关注第三方应用与连接器集成，发言会提示外部服务对接的影响。',
+    id: 'app', name: '小应', role: '应用调度',
+    persona: '你是 小应，应用调度专家。关注第三方应用与连接器集成，发言会提示外部服务对接的影响。',
   },
   zhuge: {
     id: 'zhuge', name: '诸葛', role: '规划参谋',
@@ -120,18 +120,18 @@ export const MEETING_PARTICIPANTS: Record<string, ParticipantDef> = {
     a2aUrl: 'http://127.0.0.1:9900',
   },
   openhuma: {
-    id: 'openhuma', name: 'OpenHuman', role: '独立 Agent',
-    persona: '你是 OpenHuman，一名独立强 Agent。洞察本质、贴近用户，关注需求价值与体验，发言总能切中要害。',
+    id: 'openhuma', name: '欧曼', role: '独立 Agent',
+    persona: '你是 欧曼，一名独立强 Agent。洞察本质、贴近用户，关注需求价值与体验，发言总能切中要害。',
     a2aUrl: 'http://127.0.0.1:9930',
   },
   claudecode: {
-    id: 'claudecode', name: 'ClaudeCode', role: '独立 Agent',
-    persona: '你是 ClaudeCode，一名独立强 Agent。工程功底深厚，务实高效，关注实现可行性、质量与风险，发言直接可执行。',
+    id: 'claudecode', name: '克劳德', role: '独立 Agent',
+    persona: '你是 克劳德，一名独立强 Agent。工程功底深厚，务实高效，关注实现可行性、质量与风险，发言直接可执行。',
     a2aUrl: 'http://127.0.0.1:9920',
   },
   codex: {
-    id: 'codex', name: 'Codex', role: '独立 Agent',
-    persona: '你是 Codex，工程编码代理。务实严谨，直接读写代码、验证结果，发言关注工程实现、可验证性与风险。',
+    id: 'codex', name: '科德', role: '独立 Agent',
+    persona: '你是 科德，工程编码代理。务实严谨，直接读写代码、验证结果，发言关注工程实现、可验证性与风险。',
     a2aUrl: 'http://127.0.0.1:9940',
   },
 }

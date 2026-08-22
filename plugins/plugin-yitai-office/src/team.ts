@@ -4,7 +4,7 @@
  * 角色（复刻自 多Agent办公室 v3 原型）：
  *   - 易总管（调度）：坐镇图谱正下方，接单、拆解、分派、验收
  *   - 易总管（主管）：协调各工位排期与负载，向上对 CEO 汇报
- *   - File Agent / Computer Agent / App Agent / 诸葛 / 小搜：五名专职员工
+ *   - 小文 / 小电 / 小应 / 诸葛 / 小搜：五名专职员工
  *
  * 状态：每个 agent 有 status / task / load / 位置；事件通过 callback 广播给
  * 面板（WebSocket）和 Harness 日志（tools）。
@@ -44,9 +44,9 @@ export interface TeamEvent {
 /** 1+5 办公室工位（百分比坐标，员工各自办公桌） */
 export const AGENTS: AgentDef[] = [
   { id: 'yitai', name: '易总管', role: '主管 Agent', scarf: '#ff7a59', desk: { x: 12, y: 22 }, desc: '办公室总管兼调度。接单、拆解、分派、验收，协调各工位排期与负载。' },
-  { id: 'file', name: 'File Agent', role: '文件管理', scarf: '#8b5cf6', desk: { x: 12, y: 53 }, desc: '文件读写、归档、检索与版本管理。' },
-  { id: 'computer', name: 'Computer Agent', role: '电脑操作', scarf: '#22b07d', desk: { x: 12, y: 85 }, desc: '桌面与系统级操作：开应用、跑脚本、处理本地资源。' },
-  { id: 'app', name: 'App Agent', role: '应用调度', scarf: '#f5b731', desk: { x: 88, y: 22 }, desc: '第三方 App / 连接器调用，对接外部世界。' },
+  { id: 'file', name: '小文', role: '文件管理', scarf: '#8b5cf6', desk: { x: 12, y: 53 }, desc: '文件读写、归档、检索与版本管理。' },
+  { id: 'computer', name: '小电', role: '电脑操作', scarf: '#22b07d', desk: { x: 12, y: 85 }, desc: '桌面与系统级操作：开应用、跑脚本、处理本地资源。' },
+  { id: 'app', name: '小应', role: '应用调度', scarf: '#f5b731', desk: { x: 88, y: 22 }, desc: '第三方 App / 连接器调用，对接外部世界。' },
   { id: 'zhuge', name: '诸葛', role: '规划参谋', scarf: '#3b6ef6', desk: { x: 88, y: 53 }, desc: '把模糊需求拆成可执行计划与问题链。' },
   { id: 'find', name: '小搜', role: '检索专员', scarf: '#0fb5ba', desk: { x: 88, y: 85 }, desc: '搜索引擎与知识库检索专家，找资料最快的一只。' },
 ]

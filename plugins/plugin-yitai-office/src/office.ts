@@ -261,6 +261,7 @@ export function createYitaiOffice(
         throw new Error(`没有名为 "${toMember}" 的成员`)
       }
       const { invalidateTaskAttempt } = await import('./state.ts')
+      const fromMember = task.assignee
       invalidateTaskAttempt(task)
       task.status = 'pending'
       task.assignee = toMember
@@ -268,6 +269,10 @@ export function createYitaiOffice(
       task.updatedAt = Date.now()
       await writeOffice(stateRoot, office)
       emit({ type: 'status', agentId: toMember, message: `🔁 任务「${task.subject}」转派给 ${toMember}`, timestamp: Date.now() })
+      // 工作交接：旧执行者走到新执行者工位旁交接（仅办公室成员之间）
+      if (fromMember !== toMember && AGENTS.some(a => a.id === fromMember) && AGENTS.some(a => a.id === toMember)) {
+        try { team.walkToAgent(fromMember, toMember, `交接任务「${task.subject}」`) } catch { /* 动画失败不影响转派 */ }
+      }
       return task
     })
   }

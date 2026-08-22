@@ -941,9 +941,32 @@ export function apply(ctx: Context, config: YitaiConfig = {}) {
   }
 
   async function startGroupTurn(userText: string): Promise<void> {
-    // 群聊 → 办公室联动：消息总线显示 + 全员来"我"旁边汇报（不依赖外部 A2A 状态）
+    // 角色互访指令：@A 去/找 @B 汇报/交流/交接 → A 走到 B 工位旁交流（替代全员汇报）
+    const agentById = new Map<string, { id: string; name: string }>()
+    for (const a of AGENTS) agentById.set(a.id, { id: a.id, name: a.name })
+    for (const a of AGENTS) agentById.set(a.name, { id: a.id, name: a.name })
+    const mentionedIds = new Set<string>()
+    const mre = /@([^\s@，。,。!！?？]+)/g
+    let mmm: RegExpExecArray | null
+    while ((mmm = mre.exec(userText)) !== null) {
+      const n = mmm[1]!
+      if (agentById.has(n) || agentById.has(n.toLowerCase())) {
+        const hit = agentById.get(agentById.has(n) ? n : n.toLowerCase())!
+        mentionedIds.add(hit.id)
+      }
+    }
+    const visit = (mentionedIds.size >= 2 && /汇报|交流|交接|对接|沟通|商量|拜访|请教|谈|汇报工作/.test(userText))
+      ? [...mentionedIds]
+      : null
+    // 群聊 → 办公室联动：消息总线显示（不依赖外部 A2A 状态）
     broadcastJSON({ type: 'group-msg', text: String(userText || '').slice(0, 80), timestamp: Date.now() })
-    team.reportToBoss()
+    if (visit) {
+      // 用户指定互访：A 走到 B 工位旁交流，不打扰其他人
+      team.walkToAgent(visit[0], visit[1])
+    } else {
+      // 普通消息：全员来"我"（老板）旁边汇报
+      team.reportToBoss()
+    }
     if (groupTurnPromise) return  // 上一轮 A2A 未结束：已联动，跳过重复调外部
     // 易总管先接单(本地响应,不消耗外部 A2A 上下文)
     const title = String(userText || '').slice(0, 40)

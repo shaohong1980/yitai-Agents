@@ -44,7 +44,7 @@ export interface TeamEvent {
   agentId: string
   status?: AgentStatus
   task?: string
-  message: string
+  message?: string
   timestamp: number
 }
 
@@ -199,6 +199,38 @@ export class YitaiTeam {
     pool.forEach((a, i) => {
       this.later(() => this.walkToBoss(a.id, reportText), i * 1400)
     })
+  }
+
+  /** 角色 A 走到角色 B 工位旁交流/汇报（工作交接/指定交流），然后回自己工位。 */
+  walkToAgent(fromId: string, toId: string, text?: string): void {
+    const s = this.states.get(fromId)
+    const t = this.states.get(toId)
+    if (!s || !t) return
+    if (s.seat >= 0 || s.walking || s.status === 'working') return  // 忙碌中跳过
+    const def = this.agentDef(toId)
+    if (!def) return
+    // 目标：B 工位旁（B 靠左站右侧，靠右站左侧）
+    const target = { x: def.desk.x < 50 ? def.desk.x + 16 : def.desk.x - 16, y: def.desk.y }
+    s.walking = true
+    if (s.status === 'sleep') this.setStatus(fromId, 'idle')
+    this.setStatus(fromId, s.status)
+    this.emitFn({ type: 'walk', agentId: fromId, message: `🚶 ${this.nameOf(fromId)} 起身走向 ${this.nameOf(toId)}…`, timestamp: Date.now() })
+    this.later(() => {
+      s.pos = { ...target }
+      s.walking = false
+      this.emitFn({ type: 'walk', agentId: fromId, pos: { ...target }, message: `${this.nameOf(fromId)} 到达 ${this.nameOf(toId)} 工位`, timestamp: Date.now() })
+      this.setStatus(fromId, 'reporting')
+      const txt = text ?? (s.task && s.task !== '—' && s.task !== '-' ? `对接「${s.task}」` : `找 ${this.nameOf(toId)} 对接工作`)
+      this.emitFn({ type: 'bubble', agentId: fromId, head: `💬 找 ${this.nameOf(toId)}`, text: txt, timestamp: Date.now() })
+      this.emitFn({ type: 'walk', agentId: fromId, message: `💬 ${this.nameOf(fromId)} 向 ${this.nameOf(toId)} 汇报：${txt}`, timestamp: Date.now() })
+      // 回工位
+      this.later(() => {
+        s.status = 'idle'
+        const desk = { ...this.agentDef(fromId)!.desk }
+        s.pos = { ...desk }
+        this.emitFn({ type: 'walk', agentId: fromId, pos: { ...desk }, message: `↩ ${this.nameOf(fromId)} 交流完毕，回到工位`, timestamp: Date.now() })
+      }, 2400)
+    }, 1000)
   }
 
   /** 走向认知图谱汇报 */

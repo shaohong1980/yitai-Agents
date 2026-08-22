@@ -73,7 +73,7 @@ export class MarvisTeam {
   doneCount = 0
   logLines: { time: string; cls: string; msg: string }[] = []
   private tickCounter = 0
-  private emitFn: (event: TeamEvent) => void
+  emitFn: (event: TeamEvent) => void
 
   constructor(emitFn: (event: TeamEvent) => void) {
     this.emitFn = emitFn
@@ -164,8 +164,12 @@ export class MarvisTeam {
     }, 1150)
   }
 
-  /** 派发一个任务给办公室 */
-  dispatch(text: string): string {
+  /**
+   * 派发一个任务给办公室（可视化演示流）。
+   * @param text - 任务文本
+   * @param onDone - 可选：整段演示完成后的回调（用于 durable 任务同步）
+   */
+  dispatch(text: string, onDone?: (task: string) => void): string {
     const task = text.trim() || SAMPLE_TASKS[Math.floor(Math.random() * SAMPLE_TASKS.length)]
     this.log(`📣 用户广播任务「${task}」，雷总管开始拆解`, 'marvis')
     this.setStatus('marvis', 'thinking', '拆解：' + task)
@@ -176,12 +180,17 @@ export class MarvisTeam {
     const picked = pool.slice(0, 2 + Math.floor(Math.random() * 2))
     this.log(`雷总管将任务分派给：${picked.map(p => p.name).join('、')}`, 'marvis')
 
+    const lastIdx = picked.length - 1
     picked.forEach((p, i) => {
       setTimeout(() => {
         this.emitFn({ type: 'dispatch', agentId: p.id, task, message: `${p.name} 接到子任务，在工位开始执行`, timestamp: Date.now() })
         this.startTask(p.id, task)
         setTimeout(() => {
           this.walkToTable(p.id)
+          // 最后一名员工汇报完成后触发 onDone
+          if (i === lastIdx) {
+            setTimeout(() => onDone?.(task), 2400 + 1150)
+          }
         }, 5000 + i * 2500)
       }, 700 * (i + 1))
     })

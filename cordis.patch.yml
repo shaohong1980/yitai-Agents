@@ -22,8 +22,12 @@
       config:
         port: 3888
         tickIntervalMs: 4200
+        # 真实 durable subagent 员工（可续聊成员 + 事件调度）；无可用成员时自动回退演示
         liveDelegation: true
+        demoMode: true
         subagentProvider: spawn
+        # 办公室状态持久化目录（磁盘真相源：office.json + inbox/*.jsonl）
+        stateDir: '.marvis-office'
 
     - id: bailongma-voice
       name: 'file:///E:/Myworkspace/plugins/plugin-bailongma-voice/src/index.ts'

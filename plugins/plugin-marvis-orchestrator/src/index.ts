@@ -1,12 +1,17 @@
 /**
- * plugin-marvis-orchestrator —— 多Agent 1+5 多 Agent 办公室编排器。
+ * plugin-marvis-orchestrator —— 多Agent 1+5 多 Agent 办公室编排器（借鉴 dsh-agent-teams 重写）。
  *
- * 复刻「多Agent办公室 v3」原型的服务器端实现：
- *   - 团队引擎：雷总管(调度) + 5 名专职员工，各自有工位/状态/任务。
- *   - Tick 心跳：空闲员工自主开始工作/思考/休息（白龙马 Tick 循环的 Cordis 事件化）。
- *   - 工具：marvis_dispatch（广播任务）/ marvis_status（查询团队状态）。
- *   - 可视化：本地 HTTP 服务托管 office 面板，WebSocket 实时推送团队事件。
- *   - 可选 liveDelegation：把子任务委托给 Harness 的 subagent（需 API Key）。
+ * 架构（模块化，借鉴 @nanmicoder/dsh-agent-teams）：
+ *   - types.ts    : durable 办公室/任务/邮箱类型（依赖 DAG + attempt 能力）
+ *   - state.ts    : 磁盘真相源（office.json + inbox/*.jsonl）+ per-office 锁 + 迁移规则
+ *   - members.ts  : durable 可续聊 subagent 员工（persona + 工具过滤 + followup 唤醒）
+ *   - scheduler.ts: 事件驱动调度器（agent/status idle → 认领 → 唤醒）
+ *   - office.ts   : 办公室引擎门面（状态 + 调度 + 成员 + 可视化桥接）
+ *   - team.ts     : 可视化工位/走动/气泡状态模型（demo 模式兜底）
+ *   - meeting.ts  : 多 Agent 会议室引擎（保持不变）
+ *
+ * 本文件 = 组合层：HTTP/WS 办公室面板 + 工具注册 + 系统提示协议段 +
+ *            /marvis 斜杠命令 + 会议/知识图谱/语音/群聊/A2A。
  */
 
 import { createServer } from 'node:http'
@@ -18,27 +23,39 @@ import { DatabaseSync } from 'node:sqlite'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { BlockAssembler } from '@deepseek-ai/dsh-llm'
+import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-llm'
 import { MarvisTeam, AGENTS } from './team.ts'
 import { MeetingManager, type MeetingEvent, type SpeakerPolicy } from './meeting.ts'
+import { createMarvisOffice, ROLE_PERSONAS, type MarvisOfficeApi } from './office.ts'
+import type { MarvisTask, MarvisTaskStatus } from './types.ts'
 
 export const name = 'plugin-marvis-orchestrator'
 
-export const inject = ['tools', 'subagents', 'llm']
+export const inject = ['tools', 'subagents', 'llm', 'agents', 'systemPrompt']
 
 export interface MarvisConfig {
   /** 面板服务端口（默认 3888） */
   port?: number
   /** 自主模拟 tick 间隔 ms（默认 4200，0 关闭） */
   tickIntervalMs?: number
-  /** 是否把任务真正委托给 Harness subagent（默认 false=模拟） */
+  /** 是否把任务真正委托给 durable subagent 员工（默认 true） */
   liveDelegation?: boolean
+  /** 是否允许真实成员缺省时走可视化模拟（默认 true） */
+  demoMode?: boolean
   /** subagent provider 名（默认 spawn） */
   subagentProvider?: string
-  /** 每 Agent 独立模型/Provider（agent squad 能力，参考 toolclub/agent_team_gui） */
+  /** 成员模型覆盖（可选） */
+  memberModel?: string
+  /** 办公室状态目录名（默认 .marvis-office） */
+  stateDir?: string
+  /** 办公室 id（默认 office） */
+  officeId?: string
+  /** 工作区目录（默认 process.cwd()） */
+  workspace?: string
+  /** 每 Agent 独立模型/Provider（agent squad 能力） */
   agents?: Record<string, { provider?: string; model?: string }>
   /** 全局模型/Provider 默认值 */
   llm?: { provider?: string; model?: string }
@@ -53,8 +70,9 @@ export interface MarvisConfig {
 
 export interface MarvisTeamService {
   team: MarvisTeam
-  dispatch(text: string): string
-  status(): unknown
+  office: MarvisOfficeApi
+  dispatch(text: string): Promise<string>
+  status(): Promise<unknown>
   getEventPort(): number
 }
 
@@ -63,9 +81,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 export function apply(ctx: Context, config: MarvisConfig = {}) {
   const port = config.port ?? 3888
   const tickInterval = config.tickIntervalMs ?? 4200
-  const liveDelegation = config.liveDelegation ?? false
+  const liveDelegation = config.liveDelegation ?? true
+  const demoMode = config.demoMode ?? true
+  // 默认工作区 = 插件项目根（src → plugin → plugins → Myworkspace），避免污染 E:/deepseek-harness
+  const workspace = config.workspace ?? dirname(dirname(dirname(__dirname)))
 
-  /* ============ 团队引擎 ============ */
+  /* ============ 可视化团队 + 办公室引擎 ============ */
 
   const team = new MarvisTeam((event) => broadcastJSON(event))
 
@@ -77,6 +98,20 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       if (client.readyState === WebSocket.OPEN) client.send(payload)
     }
   }
+
+  /** durable 办公室引擎：磁盘真相 + 事件调度 + durable 成员。 */
+  const office = createMarvisOffice(ctx, team, (event) => broadcastJSON(event), {
+    stateDir: config.stateDir ?? '.marvis-office',
+    officeId: config.officeId ?? 'office',
+    workspace,
+    liveDelegation,
+    demoMode,
+  })
+
+  // 异步初始化（office.json 落盘）；失败仅告警，不阻塞启动。
+  void office.init().catch((error: unknown) => {
+    ctx.logger.warn(`[marvis-office] 办公室状态初始化失败：${String(error)}`)
+  })
 
   /* ============ HTTP + WebSocket 服务 ============ */
 
@@ -113,7 +148,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     }
     // 静态资源：office 目录下的 js/map（knowledge-sphere.js 等）
     if (/\.(js|mjs|map)$/.test(url)) {
-      // 支持子目录(如 vendor/three/three.module.js),防目录穿越
       const rel = url.replace(/^\//, '').replace(/\.\.\//g, '').replace(/\.\./g, '')
       const file = join(__dirname, '../office', rel)
       try {
@@ -127,8 +161,13 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       return
     }
     if (url === '/api/status') {
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify(team.snapshot()))
+      void office.snapshot().then((snap) => {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(snap))
+      }).catch((e) => {
+        res.writeHead(500)
+        res.end(JSON.stringify({ ok: false, error: String(e) }))
+      })
       return
     }
     if (url === '/api/plugins') {
@@ -150,6 +189,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       res.end(JSON.stringify({ plugins, total: plugins.length, live: plugins.filter(p => p.status === 'online').length }))
       return
     }
+
     if (url === '/api/knowledge') {
       // 读取白龙马记忆库生成球形图谱节点与连线（读不到则返回空，由前端用演示节点兜底）
       let nodes: { _nid: string; label: string; type: string; salience: number; tags: string[]; entities: string[] }[] = []
@@ -179,7 +219,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
             entities: arrOf(r.entities),
           }
         })
-        // 连线来源：1) 共享标签 2) 共享实体 3) 核心节点向孤立节点星型辐射
         const seen = new Set<string>()
         const addLink = (a: string, b: string): void => {
           if (a === b) return
@@ -195,7 +234,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         }
         for (const group of groups) {
           for (let i = 0; i < group.length; i++) {
-            // 同一组标签/实体下的记忆两两相连
             const members = nodes.filter(n => n.tags.includes(group[i]) || n.entities.includes(group[i]))
             for (let j = 0; j < members.length - 1; j++) {
               for (let k = j + 1; k < members.length; k++) {
@@ -204,7 +242,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
             }
           }
         }
-        // 核心节点（salience 最高）向孤立节点星型辐射，保证没有孤岛
         if (nodes.length > 1) {
           const core = [...nodes].sort((a, b) => b.salience - a.salience)[0]!
           const linked = new Set<string>()
@@ -295,20 +332,25 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       })
       return
     }
+
     if (url === '/api/dispatch' && req.method === 'POST') {
       let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
-        try {
-          const parsed = JSON.parse(body || '{}')
-          const task = typeof parsed.task === 'string' ? parsed.task : '日常事务'
-          team.dispatch(task)
-          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: true, task }))
-        } catch {
-          res.writeHead(400)
-          res.end('bad request')
-        }
+        void (async () => {
+          try {
+            const parsed = JSON.parse(body || '{}')
+            const task = typeof parsed.task === 'string' ? parsed.task : '日常事务'
+            // durable 任务入池；无队长时走可视化模拟
+            const { task: created, delegated } = await office.dispatch(task)
+            if (!delegated) playDemoFloor(task, created.id)
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ ok: true, task, taskId: created.id, delegated }))
+          } catch (e) {
+            res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }))
+          }
+        })()
       })
       return
     }
@@ -323,7 +365,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
             const message = typeof parsed.message === 'string' ? parsed.message.trim() : ''
             if (!message) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'empty message' })); return }
             const reply = await chatWithAgent(agentId, message)
-            // 面板上让该 agent 回显气泡
             team.say(agentId, reply.slice(0, 150))
             res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
             res.end(JSON.stringify({ ok: true, agentId, reply }))
@@ -360,7 +401,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
           if (p.tts_provider) voiceConfig.tts_provider = String(p.tts_provider)
           if (p.asr_provider) voiceConfig.asr_provider = String(p.asr_provider)
           if (p.xunfei) {
-            // 留空/undefined 不修改(保护已配置的 key)
             const clean: any = {}
             for (const k of ['app_id', 'api_key', 'api_secret']) {
               if (p.xunfei[k] !== undefined && p.xunfei[k] !== null && p.xunfei[k] !== '') clean[k] = String(p.xunfei[k])
@@ -369,7 +409,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
           }
           if (p.minimax) {
             voiceConfig.minimax = { ...voiceConfig.minimax, ...p.minimax }
-            if (p.minimax.api_key === '') voiceConfig.minimax.api_key = ''   // 显式清空
+            if (p.minimax.api_key === '') voiceConfig.minimax.api_key = ''
           }
           if (p.doubao) {
             voiceConfig.doubao = { ...voiceConfig.doubao, ...p.doubao }
@@ -439,6 +479,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       })
       return
     }
+
     if (url === '/api/knowledge-graph') {
       const g = buildKnowledgeGraph()
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
@@ -446,47 +487,51 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       return
     }
     if (url === '/api/tasks' && req.method === 'GET') {
-      const list = [...tasks.values()].map(taskJSON).sort((a, b) => b.createdAt - a.createdAt)
-      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-      res.end(JSON.stringify({ tasks: list }))
+      void office.state().then((st) => {
+        const list = (st?.tasks ?? []).map(taskJSON).sort((a, b) => b.createdAt - a.createdAt)
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ tasks: list }))
+      }).catch((e) => {
+        res.writeHead(500); res.end(JSON.stringify({ ok: false, error: String(e) }))
+      })
       return
     }
     if (url === '/api/tasks' && req.method === 'POST') {
       let body = ''
       req.on('data', chunk => { body += chunk })
       req.on('end', () => {
-        try {
-          const parsed = JSON.parse(body || '{}')
-          const title = String(parsed.title || '').trim()
-          if (!title) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'title required' })); return }
-          let assignee = String(parsed.assignee || 'auto')
-          // 自动派单:按任务内容关键词推断最合适的执行者(参考雷总管拆解)
-          if (assignee === 'auto') {
-            const text = title + ' ' + String(parsed.desc || '')
-            if (/代码|开发|程序|脚本|bug|部署|接口|测试|修复|python|js/.test(text)) assignee = 'codex'
-            else if (/claudecode|claude/.test(text)) assignee = 'claudecode'
-            else if (/文档|PPT|课件|公文|纪要|报告|方案|总结|培训|word|docx/.test(text)) assignee = 'hermes'
-            else if (/检索|查询|搜索|资料|调研|数据|信息|新闻|图表/.test(text)) assignee = 'hermes'
-            else if (/图片|海报|设计|视频|音频|语音|图像/.test(text)) assignee = 'openhuma'
-            else assignee = 'hermes'
+        void (async () => {
+          try {
+            const parsed = JSON.parse(body || '{}')
+            const title = String(parsed.title || '').trim()
+            if (!title) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'title required' })); return }
+            let assignee = String(parsed.assignee || 'auto')
+            if (assignee === 'auto') {
+              const text = title + ' ' + String(parsed.desc || '')
+              if (/代码|开发|程序|脚本|bug|部署|接口|测试|修复|python|js/.test(text)) assignee = 'codex'
+              else if (/claudecode|claude/.test(text)) assignee = 'claudecode'
+              else if (/文档|PPT|课件|公文|纪要|报告|方案|总结|培训|word|docx/.test(text)) assignee = 'hermes'
+              else if (/检索|查询|搜索|资料|调研|数据|信息|新闻|图表/.test(text)) assignee = 'hermes'
+              else if (/图片|海报|设计|视频|音频|语音|图像/.test(text)) assignee = 'openhuma'
+              else assignee = 'hermes'
+            }
+            const ext = EXTERNAL_AGENTS.find(a => a.id === assignee)
+            const t = await office.createTask({
+              subject: title,
+              description: String(parsed.desc || ''),
+              assignee: ext ? assignee : (assignee === 'me' ? 'marvis' : assignee),
+              extUrl: ext?.url ?? null,
+            })
+            if (ext) {
+              void runTask(t)   // 仅外部 A2A agent 自动启动；员工/我走调度或手动
+            }
+            res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ ok: true, task: taskJSON(t), autoStarted: t.assignee !== 'marvis' }))
+          } catch (e) {
+            res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+            res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }))
           }
-          const t: TaskItem = {
-            id: taskId(), title,
-            desc: String(parsed.desc || ''),
-            assignee,
-            status: 'todo', createdAt: Date.now(), updatedAt: Date.now(),
-          }
-          tasks.set(t.id, t)
-          // 自动启动:指派给外部 agent 的任务创建后立即执行(不必手动点)
-          if (t.assignee !== 'me') {
-            void runTask(t)
-          }
-          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: true, task: taskJSON(t), autoStarted: t.assignee !== 'me' }))
-        } catch (e) {
-          res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
-          res.end(JSON.stringify({ ok: false, error: e instanceof Error ? e.message : String(e) }))
-        }
+        })()
       })
       return
     }
@@ -499,24 +544,28 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       req.on('end', () => {
         void (async () => {
           try {
-            const t = tasks.get(tid)
+            const st = await office.state()
+            const t = st?.tasks.find((x) => x.id === tid)
             if (!t) { res.writeHead(404); res.end(JSON.stringify({ ok: false, error: 'task not found' })); return }
             const parsed = JSON.parse(body || '{}')
             if (action === 'run') {
-              if (t.status !== 'todo') { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'only todo tasks can run' })); return }
-              void runTask(t)   // 后台执行,完成后 status → review
+              if (t.status !== 'pending' && t.status !== 'failed') { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: '只有待办/失败任务可运行' })); return }
+              void runTask(t)
               res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
               res.end(JSON.stringify({ ok: true, task: taskJSON(t) }))
             } else if (action === 'approve') {
               if (t.status !== 'review') { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'only review tasks can be approved' })); return }
-              t.status = 'done'; t.updatedAt = Date.now()
+              const attemptId = t.attemptId
+              if (!attemptId) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'task has no active attempt' })); return }
+              const done = await office.updateTask(t.id, attemptId, 'completed', t.output)
               res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-              res.end(JSON.stringify({ ok: true, task: taskJSON(t) }))
+              res.end(JSON.stringify({ ok: true, task: taskJSON(done) }))
             } else if (action === 'reject') {
               if (t.status !== 'review') { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'only review tasks can be rejected' })); return }
-              t.status = 'todo'; t.comment = String(parsed.comment || '未通过验收'); t.updatedAt = Date.now()
+              const rejected = await office.updateTask(t.id, t.attemptId ?? '', 'pending', t.output)
+              await office.patchTask(t.id, { comment: String(parsed.comment || '未通过验收') })
               res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
-              res.end(JSON.stringify({ ok: true, task: taskJSON(t) }))
+              res.end(JSON.stringify({ ok: true, task: taskJSON(rejected) }))
             } else {
               res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'unknown action' }))
             }
@@ -530,7 +579,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     }
     if (url === '/api/ext-agents') {
       void (async () => {
-        // 办公室侧栏外部工作站:白龙马已移除(任务/会议仍可用)
         const agents = await Promise.all(EXTERNAL_AGENTS.filter(a => a.id !== 'bailongma').map(async a => ({
           ...a, online: await checkExtHealth(a.url),
         })))
@@ -553,7 +601,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
           const text = typeof parsed.text === 'string' ? parsed.text.trim() : ''
           if (!text) { res.writeHead(400); res.end(JSON.stringify({ ok: false, error: 'empty' })); return }
           groupHistory.push({ sender: 'user', name: '我', role: 'user', text, ts: Date.now() })
-          void startGroupTurn(text)   // 后台触发 5 个 agent 回复
+          void startGroupTurn(text)
           res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
           res.end(JSON.stringify({ ok: true, busy: true }))
         } catch (e) {
@@ -654,14 +702,14 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
   const wss = new WebSocketServer({ server, path: '/ws' })
   wss.on('connection', (ws) => {
     clients.add(ws)
-    // 连接即发送当前全量快照
     ws.send(JSON.stringify({ type: 'snapshot', ...team.snapshot(), timestamp: Date.now() }))
-    // 面板可发 dispatch 消息派发任务
     ws.on('message', (data) => {
       try {
         const msg = JSON.parse(String(data))
         if (msg?.type === 'dispatch' && typeof msg.task === 'string') {
-          team.dispatch(msg.task)
+          void office.dispatch(msg.task).then(({ task: created, delegated }) => {
+            if (!delegated) playDemoFloor(msg.task, created.id)
+          })
         }
       } catch {
         // 忽略非法消息
@@ -684,7 +732,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     }
   })
 
-  team.log('🏢 多Agent办公室上线，雷总管坐镇调度，6 名 AI 员工就位', 'sys')
+  team.log('🏢 多Agent办公室上线（durable 引擎 + 事件调度），雷总管坐镇调度，6 名 AI 员工就位', 'sys')
 
   /* ============ 会议室引擎（多 Agent 会议系统） ============ */
 
@@ -700,7 +748,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       provider,
       model,
       system,
-      // 关闭思考，让 agent 直接快速回话（避免 reasoning 吃满预算无输出）
       reasoningEffort: 'off' as const,
       messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: userText }] }],
       maxTokens,
@@ -722,18 +769,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
 
   ctx.logger.info(`[marvis-orchestrator] 🏢 会议室引擎就绪（speakerPolicy=${meetingCfg.speakerPolicy ?? 'round-robin'}）`)
 
-  /* ============ 工具注册 ============ */
-
-  /* ============ liveDelegation：角色 persona ============ */
-
-  const ROLE_PERSONAS: Record<string, string> = {
-    marvis: '你是雷总管，办公室主管。负责协调排期、汇总子任务结果，产出简洁的统筹报告。',
-    file: '你是 File Agent，文件管理专家。负责读写、归档、检索与版本管理，直接操作文件并汇报路径。',
-    computer: '你是 Computer Agent，电脑操作专家。负责桌面与系统级操作：运行脚本、处理本地资源、执行命令。',
-    app: '你是 App Agent，应用调度专家。负责调用第三方应用/连接器，对接外部服务并返回结果。',
-    zhuge: '你是诸葛雷，规划参谋。把模糊需求拆成可执行计划与问题链，输出结构化步骤清单。',
-    find: '你是雷找找，检索专员。搜索引擎与知识库检索专家，找资料最快，输出带来源的检索摘要。',
-  }
+  /* ============ liveDelegation：角色 persona（来自 office.ts）+ 记忆 ============ */
 
   /** 把一次 Agent 对话写入白龙马记忆库（type=dialog），让图谱球记录对话内容 */
   function saveChatMemory(agentId: string, agentName: string, userText: string, reply: string): void {
@@ -760,6 +796,34 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
    * Agent 智能对话：用角色 persona + Harness LLM 直接回话。
    * 让办公室里的 AI 员工能自我介绍、回答问题、接单讨论。
    */
+  async function chatWithAgent(agentId: string, userText: string): Promise<string> {
+    const ext = EXTERNAL_AGENTS.find(a => a.id === agentId)
+    if (ext) {
+      const reply = await callExternalA2A(ext.url, `ui:${ext.id}`, userText)
+      saveChatMemory(agentId, ext.name, userText, reply)
+      return reply
+    }
+    const def = AGENTS.find(a => a.id === agentId)
+    if (!def) throw new Error(`unknown agent: ${agentId}`)
+    const persona = ROLE_PERSONAS[agentId] ?? ROLE_PERSONAS.marvis
+    const system = `${persona}\n\n你是「${def.name}（${def.role}）」——多Agent办公室里的 AI 员工。用户正在直接跟你对话。请以该身份用中文简洁、友好地回应。若用户让你自我介绍，请介绍你的职责和能力。`
+    const text = await llmText(agentId, system, userText, 1000)
+    saveChatMemory(agentId, def.name, userText, text)
+    return text
+  }
+
+  /**
+   * 可视化演示流：把 durable 任务投到办公室地板动画，动画结束后同步
+   * office.finishDemoTask（demo 模式/UI 派发时走这条路径）。
+   */
+  function playDemoFloor(text: string, taskId: string): void {
+    team.dispatch(text, (task) => {
+      void office.finishDemoTask(taskId).catch((e) => {
+        ctx.logger.warn(`[marvis-office] demo 任务完成同步失败：${String(e)}`)
+      })
+    })
+  }
+
   // ── 外部 A2A Agent(会议桌成员,与 meeting.ts 一致) ──
   const EXTERNAL_AGENTS: { id: string; name: string; role: string; url: string }[] = [
     { id: 'hermes', name: '爱马仕', role: '外部 · Hermes', url: 'http://127.0.0.1:9900' },
@@ -816,7 +880,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     else if (/检索|查询|搜索|资料|调研|数据|信息|新闻/.test(t)) advice = '涉及信息检索 → 建议白龙马主责检索，ClaudeCode 辅助分析，我汇总验收。'
     else if (/图片|海报|设计|视频|音频|语音/.test(t)) advice = '涉及多媒体 → 建议 OpenHuman 主责，爱马仕协助排版，我验收质量。'
     else advice = '已接单，我来拆解分派给最合适的 Agent，执行后统一验收。'
-    // 职责分工:群里只讨论,正式派活去任务看板
     return advice + '\n(正式派单请到 📋 任务看板：建任务→指派→自动验货→你审批)'
   }
 
@@ -842,7 +905,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         const timer = setTimeout(() => controller.abort(), 120_000)
         const reply = await callExternalA2A(a.url, groupCtx(a.id), userText)
         clearTimeout(timer)
-        // 防循环拦截 → 自动开新上下文重试一次
         if (/anti-loop|exceeded \d+ turns/i.test(reply)) {
           groupCtxVer[a.id] = (groupCtxVer[a.id] || 1) + 1
           const retry = await callExternalA2A(a.url, groupCtx(a.id), userText)
@@ -855,110 +917,103 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         }
         groupHistory.push({ sender: a.id, name: a.name, role: 'agent', text: reply, ts: Date.now() })
       } catch (e: any) {
-        clearTimeout((e as any)?.timer)
         groupHistory.push({ sender: a.id, name: a.name, role: 'agent',
           text: `[回复失败: ${String(e?.message ?? e).slice(0, 120)}]`, ts: Date.now() })
       }
     })
     groupTurnPromise = Promise.all(jobs).finally(() => { groupTurnPromise = null })
-    // 不 await:调用方立即返回,前端轮询看到消息逐个出现
   }
 
   function groupBusyIds(): string[] {
-    // 简化:有进行中的轮次时,外部 agent 都算"思考中"
     return groupTurnPromise ? EXTERNAL_AGENTS.map(a => a.id) : []
   }
 
-  // ── 任务看板 + 审批(HiveWard 审批治理的轻量落地) ──
-  // 状态机: todo(待办) → running(执行中) → review(待验收/审批) → done(完成)
-  //          review 被驳回 → todo(带意见)
-  interface TaskItem {
-    id: string
-    title: string
-    desc: string
-    assignee: string          // 外部 agent id 或 'me'
-    status: 'todo' | 'running' | 'verifying' | 'review' | 'done'
-    result?: string
-    verifyReport?: string     // 验货员自动验收报告
-    verifyPass?: boolean      // 自动验收是否通过
-    comment?: string          // 驳回/验货意见
-    createdAt: number
-    updatedAt: number
-  }
-  // 验货员:有工具能力的外部 agent(能实际读文件/跑命令核实交付物)
-  const VERIFIER_ID = 'codex'
-  const VERIFIER = EXTERNAL_AGENTS.find(a => a.id === VERIFIER_ID)
-  const tasks = new Map<string, TaskItem>()
-  let taskSeq = 0
-
-  function taskId(): string {
-    taskSeq += 1
-    return `T-${Date.now().toString(36).toUpperCase()}${taskSeq}`
+  // ── 任务看板 + 审批（基于 durable office 任务） ──
+  const UI_STATUS: Record<MarvisTaskStatus, string> = {
+    pending: 'todo', claimed: 'running', in_progress: 'running', review: 'review',
+    completed: 'done', failed: 'failed', cancelled: 'cancelled',
   }
 
-  function taskJSON(t: TaskItem) {
+  function taskJSON(t: MarvisTask) {
     const ext = EXTERNAL_AGENTS.find(a => a.id === t.assignee)
-    return { ...t, assigneeName: ext ? ext.name : '我', assigneeUrl: ext?.url ?? null }
-  }
-  // 供 verifyTask 提示词使用的员工名
-  function taskAssigneeName(t: TaskItem): string {
-    const ext = EXTERNAL_AGENTS.find(a => a.id === t.assignee)
-    return ext ? ext.name : '我'
+    return {
+      id: t.id,
+      title: t.subject,
+      desc: t.description ?? '',
+      assignee: t.assignee ?? 'marvis',
+      status: UI_STATUS[t.status],
+      result: t.output,
+      verifyReport: t.verifyReport,
+      verifyPass: t.verifyPass,
+      comment: t.comment,
+      dependencies: t.dependencies,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      assigneeName: ext ? ext.name : (t.assignee === 'marvis' ? '我' : t.assignee),
+      assigneeUrl: ext?.url ?? null,
+    }
   }
 
-  /** 执行任务:调 assignee(A2A 或本地),完成后进入验货 */
-  async function runTask(t: TaskItem): Promise<void> {
-    t.status = 'running'
-    t.updatedAt = Date.now()
+  /** 执行任务：队长代领 → 调 assignee（A2A 或本地）→ 进入待验收 */
+  async function runTask(t: MarvisTask): Promise<void> {
     const ext = EXTERNAL_AGENTS.find(a => a.id === t.assignee)
+    let attemptId: string
+    try {
+      attemptId = await office.claimTask(t.id, 'marvis')
+    } catch { return }
     let reply: string
     if (ext) {
-      reply = await callExternalA2A(ext.url, `task:${t.id}`, `【任务】${t.title}\n${t.desc}\n请执行并给出结果。`)
+      try {
+        await office.updateTask(t.id, attemptId, 'in_progress')
+        reply = await callExternalA2A(ext.url, `task:${t.id}`, `【任务】${t.subject}\n${t.description ?? ''}\n请执行并给出结果。`)
+      } catch (e: any) {
+        reply = `[执行失败: ${String(e?.message ?? e).slice(0, 150)}]`
+      }
     } else {
       reply = '（未指定执行 Agent，请手动完成后标记验收）'
     }
-    t.result = reply
-    t.status = 'verifying'
-    t.updatedAt = Date.now()
-    // 自动验收:验货员 Agent 用工具实际核实交付物
-    if (VERIFIER) {
-      void verifyTask(t)
-    } else {
-      t.status = 'review'
-    }
+    await office.updateTask(t.id, attemptId, 'review', reply)
+    if (VERIFIER) void verifyTask(t)
   }
 
   /**
    * 自动验收(参考白龙马 verifyDelivery):
    * 验货员 Agent 用工具(list_dir/read_file/exec)实际核实交付产物是否真实存在、内容是否匹配任务。
-   * 必须给出可复核证据(文件路径/命令输出),没有证据判不通过。
    */
-  async function verifyTask(t: TaskItem): Promise<void> {
+  async function verifyTask(t: MarvisTask): Promise<void> {
+    const attemptId = t.attemptId
+    if (!attemptId) return
+    const st = await office.state()
+    const fresh = st?.tasks.find(x => x.id === t.id)
+    if (!fresh || fresh.status !== 'review') return
+    const ext = EXTERNAL_AGENTS.find(a => a.id === fresh.assignee)
     const prompt =
-      `你是验货员。员工「${taskAssigneeName(t)}」针对任务「${t.title}」交付了以下内容。\n` +
+      `你是验货员。员工「${ext ? ext.name : fresh.assignee}」针对任务「${fresh.subject}」交付了以下内容。\n` +
       `请用工具(读文件/列目录/执行命令)实际核实交付产物是否真实存在、内容是否匹配任务。\n` +
       `规则:必须给出可复核的证据(文件路径/命令输出/运行结果);没有证据就判不通过。\n` +
       `返回格式:第一行只写"通过"或"不通过",随后列出证据。\n\n` +
-      `【任务描述】${t.desc}\n【员工交付内容】${String(t.result || '').slice(0, 2000)}`
+      `【任务描述】${fresh.description ?? ''}\n【交付内容】${String(fresh.output || '').slice(0, 2000)}`
     try {
       const verdict = await callExternalA2A(VERIFIER!.url, `task:${t.id}:verify`, prompt)
       const v = String(verdict || '').trim()
       const failSignal = /不通过|未通过|不存在|无法验证|未找到|缺少(?:关键|交付|证据)/i.test(v)
       const passSignal = /^通过|通过。|通过\n|已确认|已验证|核实通过|ok\b/i.test(v)
       const pass = passSignal && !failSignal
-      t.verifyReport = v.slice(0, 1200)
-      t.verifyPass = pass
-      t.comment = pass ? undefined : '自动验收未通过:' + v.slice(0, 200)
-      t.status = pass ? 'review' : 'todo'
-      t.updatedAt = Date.now()
+      fresh.verifyReport = v.slice(0, 1200)
+      fresh.verifyPass = pass
+      fresh.comment = pass ? undefined : '自动验收未通过:' + v.slice(0, 200)
+      if (!pass) {
+        await office.updateTask(fresh.id, attemptId, 'pending', fresh.output)
+      }
     } catch (e: any) {
-      // 验货失败不阻塞:直接进人工待验收,由用户判断
-      t.verifyReport = `[验货调用失败:${String(e?.message ?? e).slice(0, 120)}]`
-      t.verifyPass = undefined
-      t.status = 'review'
-      t.updatedAt = Date.now()
+      fresh.verifyReport = `[验货调用失败:${String(e?.message ?? e).slice(0, 120)}]`
+      fresh.verifyPass = undefined
     }
   }
+
+  // 验货员:有工具能力的外部 agent(能实际读文件/跑命令核实交付物)
+  const VERIFIER_ID = 'codex'
+  const VERIFIER = EXTERNAL_AGENTS.find(a => a.id === VERIFIER_ID)
 
   // ── 知识图谱(参考白龙马 concept-extractor + knowledge-sphere) ──
   // 群聊 + 会议记录 → 中文 n-gram 概念抽取 → 主题词节点 + 共现链接
@@ -967,7 +1022,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     '和','与','把','被','因为','所以','如果','一个','一些','什么','怎么','为什么',
     '帮我','请','好的','明白','告诉','让','做','去','来','说','给','大家','你好','请问',
     '可以','应该','需要','进行','通过','工作','问题','现在','已经','还是','就是','一下',
-    '大家好','我觉得','我认为','谢谢','哈哈','好的','收到','没错','可以','是的','嗯','哦',
+    '大家好','我觉得','我认为','谢谢','哈哈','收到','没错','是的','嗯','哦',
   ])
 
   /** 中文 n-gram(2-4字)+ 英文词抽取,返回词频 Map */
@@ -975,8 +1030,8 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     const freq = new Map<string, number>()
     const bump = (w: string) => {
       if (!w || w.length < 2 || GRAPH_STOP_WORDS.has(w)) return
-      if (/^[\W_]+$/.test(w) || w.includes('**')) return   // 纯符号/星号噪声
-      if (/^[a-zA-Z]$/.test(w)) return                      // 单字母
+      if (/^[\W_]+$/.test(w) || w.includes('**')) return
+      if (/^[a-zA-Z]$/.test(w)) return
       freq.set(w, (freq.get(w) || 0) + 1)
     }
     const cleaned = String(text || '')
@@ -996,7 +1051,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
 
   /** 构建图谱:节点(主题词)+ 链接(同消息共现) */
   function buildKnowledgeGraph(limit = 40) {
-    // 数据源:群聊历史 + 会议记录(meetings.list())
     const sources: { text: string; agent: string }[] = []
     groupHistory.forEach(m => sources.push({ text: m.text, agent: m.name }))
     try {
@@ -1025,17 +1079,15 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         if (!nodeAgents.has(w)) nodeAgents.set(w, new Set())
         nodeAgents.get(w)!.add(s.agent)
       })
-      // 共现链接(前 5 个概念两两连)
       for (let i = 0; i < Math.min(5, concepts.length); i++) {
         for (let j = i + 1; j < Math.min(5, concepts.length); j++) {
           const a = concepts[i], b = concepts[j]
-          const key = a < b ? a + '\u0000' + b : b + '\u0000' + a
+          const key = a < b ? a + '|' + b : b + '|' + a
           linkStrength.set(key, (linkStrength.get(key) || 0) + 1)
         }
       }
     })
 
-    // 排序取前 N 节点
     const top = [...nodeFreq.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit)
     const topSet = new Set(top.map(([w]) => w))
     const nodes = top.map(([w, count]) => ({
@@ -1045,7 +1097,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     }))
     const links = [...linkStrength.entries()]
       .map(([key, strength]) => {
-        const [a, b] = key.split('\u0000')
+        const [a, b] = key.split('|')
         if (!topSet.has(a) || !topSet.has(b)) return null
         return { source: a, target: b, strength }
       })
@@ -1057,13 +1109,12 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
   }
 
   // ── 语音(参考白龙马 voice:tts-providers/cloud-asr) ──
-  // 配置持久化到 office/voice-config.json;TTS 走 MiniMax / 豆包(方舟) API
   const VOICE_CONFIG_FILE = join(__dirname, '../office/voice-config.json')
   let voiceConfig: any = {
-    tts_provider: 'browser',       // browser | minimax | doubao
+    tts_provider: 'browser',
     minimax: { api_key: '', group_id: '', model: 'speech-02-hd', voice: 'female-shaonv' },
     doubao: { api_key: '', model: 'doubao-tts-large-preview', voice: 'zh_female_xiaohe_uranus_bigtts' },
-    asr_provider: 'browser',       // browser | xunfei
+    asr_provider: 'browser',
     xunfei: { app_id: '', api_key: '', api_secret: '' },
   }
   try {
@@ -1116,13 +1167,7 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     return buf
   }
 
-  // ── 科大讯飞 RTASR(实时语音转写,参考白龙马 cloud-asr.js createXunfeiSession) ──
-  // (crypto 与 WebSocket 已在文件顶部引入)
-
-  /**
-   * 一次性 PCM → 讯飞 RTASR 转写(模拟流式:连接后按 chunk 发送,结束后拿全文)
-   * 签名: signa = HMAC-SHA1(apiKey, MD5(appId + ts)) base64
-   */
+  // ── 科大讯飞 RTASR(实时语音转写) ──
   function xunfeiSign(appId: string, apiKey: string): { ts: string; signa: string } {
     const ts = Math.floor(Date.now() / 1000).toString()
     const md5Base = crypto.createHash('md5').update(appId + ts).digest('hex')
@@ -1136,15 +1181,13 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         const { ts, signa } = xunfeiSign(cfg.app_id, cfg.api_key)
         const url = `wss://rtasr.xfyun.cn/v1/ws?appid=${cfg.app_id}&ts=${ts}&signa=${encodeURIComponent(signa)}&lang=cn`
         const ws = new WebSocket(url)
-        const CHUNK = 1280          // 讯飞要求按帧发送(25ms @16k)
-        const chunks: Buffer[] = []
+        const CHUNK = 1280
         const parts: string[] = []
         const timer = setTimeout(() => { try { ws.close() } catch { /* noop */ } }, 30000)
         ws.on('open', () => {
           for (let i = 0; i < pcmBuffer.length; i += CHUNK) {
             ws.send(pcmBuffer.subarray(i, i + CHUNK))
           }
-          // 发结束帧
           ws.send(JSON.stringify({ end: true }))
         })
         ws.on('message', (data) => {
@@ -1171,7 +1214,6 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
   }
 
   async function checkExtHealth(url: string): Promise<boolean> {
-    // 任何 HTTP 响应(含 4xx/5xx)都说明服务在线;只有连接拒绝/超时才算离线。
     for (const path of ['/health', '/']) {
       try {
         const controller = new AbortController()
@@ -1183,137 +1225,14 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
         clearTimeout(timer)
         const isNetworkErr = e?.name === 'AbortError' || e?.cause?.code === 'ECONNREFUSED' || String(e).includes('fetch failed')
         if (isNetworkErr) return false
-        // HTTP 错误码(404 等)说明服务在,继续
       }
     }
     return true
   }
 
-  async function chatWithAgent(agentId: string, userText: string): Promise<string> {
-    const ext = EXTERNAL_AGENTS.find(a => a.id === agentId)
-    if (ext) {
-      const reply = await callExternalA2A(ext.url, `ui:${ext.id}`, userText)
-      saveChatMemory(agentId, ext.name, userText, reply)
-      return reply
-    }
-    const def = AGENTS.find(a => a.id === agentId)
-    if (!def) throw new Error(`unknown agent: ${agentId}`)
-    const persona = ROLE_PERSONAS[agentId] ?? ROLE_PERSONAS.marvis
-    const system = `${persona}\n\n你是「${def.name}（${def.role}）」——多Agent办公室里的 AI 员工。用户正在直接跟你对话。请以该身份用中文简洁、友好地回应。若用户让你自我介绍，请介绍你的职责和能力。`
-    const text = await llmText(agentId, system, userText, 1000)
-    saveChatMemory(agentId, def.name, userText, text)
-    return text
-  }
+  /* ============ 工具注册 ============ */
 
-  /**
-   * 真实委托：为每位被派员工 spawn 一个 harness subagent。
-   * @returns 是否成功委托（false 表示回退模拟）
-   */
-  async function delegateLive(task: string, agentId: string, parent: unknown, signal: AbortSignal): Promise<boolean> {
-    const subagents = ctx.subagents
-    if (!subagents || !parent) return false
-    try {
-      const def = AGENTS.find(a => a.id === agentId)
-      if (!def) return false
-      const persona = ROLE_PERSONAS[agentId] ?? ROLE_PERSONAS.marvis
-      const run = await subagents.start(config.subagentProvider ?? 'spawn', {
-        request: {
-          parent: parent as never,
-          prompt: [{ type: 'text', text: `请以「${def.name}（${def.role}）」的身份执行子任务：${task}\n\n完成后用 3-5 句话汇报结果。` }],
-          label: `marvis:${agentId}`,
-          persona,
-        },
-        signal,
-      })
-      // 异步等待结果，完成时更新团队状态
-      void run.result.then((result) => {
-        const text = result.output.map(b => b.type === 'text' ? b.text : '').join('\n').trim()
-        team.completeTask(agentId, task)
-        team.log(`📦 ${def.name}（subagent）完成任务「${task}」：${text.slice(0, 120)}`, 'done')
-      }).catch(() => {
-        team.log(`⚠️ ${def.name}（subagent）子任务失败，已回退为模拟`, 'marvis')
-      })
-      return true
-    } catch (e) {
-      ctx.logger.warn(`[marvis-orchestrator] liveDelegation spawn 失败: ${String(e)}`)
-      return false
-    }
-  }
-
-  ctx.tools.register(defineTool({
-    name: 'marvis_dispatch',
-    description: '把任务广播给多Agent办公室：雷总管(调度)拆解并分派给下属员工执行。适合需要分工协作的复杂任务。',
-    parameters: {
-      task: { type: 'string', description: '要广播的任务描述', required: true },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: String(value) }],
-    },
-    async execute(args, exec) {
-      const task = team.dispatch(args.task)
-      // 真实委托模式：对被派员工 spawn subagent
-      if (liveDelegation) {
-        const parent = exec.agent
-        if (parent && ctx.subagents) {
-          // 派给当前非 CEO 员工（团队刚 dispatch 完，取 picking 名单）
-          const pool = AGENTS.filter(a => a.id !== 'marvis')
-          let delegated = 0
-          for (const p of pool) {
-            const s = team.get(p.id)
-            if (s.status === 'working' && s.task === task) {
-              const ok = await delegateLive(task, p.id, parent, exec.signal)
-              if (ok) delegated++
-            }
-          }
-          if (delegated > 0) {
-            team.log(`🤖 已委托 ${delegated} 名 subagent 真实执行「${task}」`, 'sys')
-            return `📣 已派发任务「${task}」并委托 ${delegated} 个 subagent 真实执行。`
-          }
-        }
-        return `📣 已派发任务「${task}」（当前无可用 subagent 委托，办公室以模拟模式运转）。`
-      }
-      return `📣 已派发任务「${task}」，办公室开始运转。`
-    },
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'marvis_status',
-    description: '查询多Agent办公室当前状态：每位 AI 员工的状态、当前任务、累计完成数、最近日志。',
-    parameters: {},
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: String(value) }],
-    },
-    async execute() {
-      const snap = team.snapshot()
-      const lines = snap.agents.map(a => `- ${a.id}: ${a.status}${a.task !== '—' ? `「${a.task}」` : ''}（完成 ${a.done} 件）`)
-      const logs = snap.logs.slice(0, 8).map(l => `  ${l.time} ${l.msg}`)
-      return `团队状态（共完成 ${snap.doneCount} 件）：\n${lines.join('\n')}\n最近日志：\n${logs.join('\n')}`
-    },
-  }))
-
-  ctx.tools.register(defineTool({
-    name: 'marvis_ask',
-    description: '向多Agent办公室里的某位 AI 员工提问并获取回答。员工各有分工：marvis(雷总管·调度)/file(文件管理)/computer(电脑操作)/app(应用调度)/zhuge(规划参谋)/find(检索专员)。适合让某个专职员工自我介绍、咨询其领域问题。',
-    parameters: {
-      agentId: { type: 'string', description: '员工 id：marvis/file/computer/app/zhuge/find', required: true },
-      question: { type: 'string', description: '要问的问题', required: true },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, value) => [{ type: 'text', text: String(value) }],
-    },
-    async execute(args) {
-      const reply = await chatWithAgent(args.agentId, args.question)
-      const name = AGENTS.find(a => a.id === args.agentId)?.name ?? args.agentId
-      return `【${name}】${reply}`
-    },
-  }))
-
-  /* ============ 多 Agent 会议室工具 ============ */
-
-  /** 会议纪要写入白龙马记忆库（type=meeting，source_ref 标记会议室，便于按会议隔离检索） */
+  /** 会议纪要写入白龙马记忆库（type=meeting，source_ref 标记会议室） */
   function saveMeetingMinutes(meetingId: string, minutes: string): void {
     try {
       const room = meetings.get(meetingId)
@@ -1339,6 +1258,163 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
       ctx.logger.warn(`[marvis-orchestrator] 纪要写入记忆库失败: ${String(e)}`)
     }
   }
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_dispatch',
+    description: '把任务广播给多Agent办公室：雷总管(调度)拆解并分派给下属员工执行。开启 liveDelegation 时员工为真实 durable subagent；否则为可视化模拟。适合需要分工协作的复杂任务。',
+    parameters: {
+      task: { type: 'string', description: '要广播的任务描述', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args, exec) {
+      const { task, delegated } = await office.dispatch(args.task, exec.agent)
+      if (!delegated) playDemoFloor(args.task, task.id)
+      return delegated
+        ? `📣 已派发任务「${task.subject}」（${task.id}）并委托 durable subagent 员工真实执行。`
+        : `📣 已派发任务「${task.subject}」（${task.id}），办公室以模拟模式运转（无可用真实 subagent）。`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_status',
+    description: '查询多Agent办公室当前状态：每位 AI 员工的状态、当前任务、累计完成数、任务板（含依赖/attempt）、最近日志与未读邮箱。',
+    parameters: {},
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute() {
+      const snap = await office.snapshot()
+      const lines = snap.agents.map(a => `- ${a.id}: ${a.status}${a.task !== '—' ? `「${a.task}」` : ''}（完成 ${a.done} 件）`)
+      const taskLines = snap.tasks.slice(-10).map(t =>
+        `  ${t.id} [${t.status}] ${t.subject}${t.assignee ? ` → ${t.assignee}` : ''}${t.dependencies.length ? ` (依赖:${t.dependencies.join(',')})` : ''}${t.attempt ? ` (attempt:${t.attempt})` : ''}`,
+      )
+      const logs = snap.logs.slice(0, 8).map(l => `  ${l.time} ${l.msg}`)
+      const st = await office.state()
+      let mailbox = ''
+      if (st) {
+        const captainMail = await office.readMailbox('captain')
+        if (captainMail.length) mailbox = `\n📬 队长未读消息 ${captainMail.length} 条：\n${captainMail.slice(-3).map(m => `  [${m.from}] ${m.content.slice(0, 80)}`).join('\n')}`
+      }
+      return `团队状态（累计完成 ${snap.doneCount} 件）：\n${lines.join('\n')}\n任务板：\n${taskLines.join('\n') || '  （暂无任务）'}${mailbox}\n最近日志：\n${logs.join('\n')}`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_claim_task',
+    description: '（成员工具）领取一个任务。返回 attempt_id，之后的 marvis_update_task 必须携带它。队长/员工均可调用。',
+    parameters: {
+      taskId: { type: 'string', description: '任务 id（如 t1）', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args, exec) {
+      const caller = exec.agent ? exec.agent.id : 'marvis'
+      const st = await office.state()
+      const memberName = st?.members.find(m => m.id === caller)?.name ?? 'marvis'
+      const attemptId = await office.claimTask(String(args.taskId), memberName)
+      return `已认领任务 ${args.taskId}。attempt_id=${attemptId}`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_update_task',
+    description: '（成员工具）携带当前 attempt_id 推进任务状态：in_progress / completed / failed。stale attempt 会拒绝（任务已被转派/接管）。',
+    parameters: {
+      taskId: { type: 'string', description: '任务 id', required: true },
+      attemptId: { type: 'string', description: '认领时返回的 attempt_id', required: true },
+      status: { type: 'string', description: '目标状态：in_progress / completed / failed / review', required: true },
+      output: { type: 'string', description: '完成/失败时的结果说明' },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args) {
+      const status = String(args.status)
+      if (!['in_progress', 'completed', 'failed', 'review'].includes(status)) {
+        throw new Error(`不支持的状态：${status}`)
+      }
+      const t = await office.updateTask(
+        String(args.taskId),
+        String(args.attemptId),
+        status as MarvisTaskStatus,
+        args.output !== undefined ? String(args.output) : undefined,
+      )
+      return `任务 ${t.id} → ${t.status}${t.output ? `\n输出：${t.output.slice(0, 200)}` : ''}`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_reassign_task',
+    description: '（队长工具）转派任务：安全接管/重新分配。使旧 attempt 失效，等待旧执行者安静后重新调度。assignee 可为员工 id（file/computer/app/zhuge/find）或 captain。',
+    parameters: {
+      taskId: { type: 'string', description: '任务 id', required: true },
+      to: { type: 'string', description: '目标执行者：file/computer/app/zhuge/find/captain', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args) {
+      const t = await office.reassignTask(String(args.taskId), String(args.to))
+      await office.kick()
+      return `任务 ${t.id} 已转派给 ${t.assignee}，调度器将重新派发。`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_send_message',
+    description: '成员/队长互发消息：写入 durable 邮箱并唤醒收件成员。to 可为员工 id（file/computer/app/zhuge/find）或 captain。',
+    parameters: {
+      to: { type: 'string', description: '收件人：员工 id 或 captain', required: true },
+      content: { type: 'string', description: '消息内容', required: true },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args, exec) {
+      const caller = exec.agent ? exec.agent.id : 'marvis'
+      const st = await office.state()
+      const from = st?.members.find(m => m.id === caller)?.name ?? 'marvis'
+      await office.sendMessage(from, String(args.to), String(args.content))
+      return `已发送消息：${from} → ${args.to}`
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'marvis_create_task',
+    description: '（队长工具）在办公室任务板上创建任务，支持依赖（dependencies）与指派（assignee）。适合把复杂目标拆解为多个带依赖的子任务。',
+    parameters: {
+      subject: { type: 'string', description: '任务标题', required: true },
+      description: { type: 'string', description: '任务详情' },
+      assignee: { type: 'string', description: '执行者：file/computer/app/zhuge/find 或外部 agent id（codex/hermes/…），缺省共享池' },
+      dependencies: { type: 'array', items: { type: 'string' }, description: '必须先完成的任务 id 列表' },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, value) => [{ type: 'text', text: String(value) }],
+    },
+    async execute(args, exec) {
+      const deps = Array.isArray(args.dependencies) ? args.dependencies.map(String) : []
+      const t = await office.createTask({
+        subject: String(args.subject),
+        description: args.description !== undefined ? String(args.description) : undefined,
+        assignee: args.assignee !== undefined ? String(args.assignee) : undefined,
+        dependencies: deps,
+      })
+      await office.kick()
+      return `已创建任务 ${t.id}「${t.subject}」（${t.status}${t.dependencies.length ? `，依赖 ${t.dependencies.join(',')}` : ''}），调度器已触发。`
+    },
+  }))
+
+  /* ============ 多 Agent 会议室工具 ============ */
 
   ctx.tools.register(defineTool({
     name: 'meeting_create',
@@ -1440,18 +1516,54 @@ export function apply(ctx: Context, config: MarvisConfig = {}) {
     },
   }))
 
-  ctx.logger.info('[marvis-orchestrator] 已注册 marvis_dispatch / marvis_status / marvis_ask + 6 个会议室工具')
+  ctx.logger.info('[marvis-orchestrator] 已注册 marvis_dispatch / marvis_status / marvis_claim_task / marvis_update_task / marvis_reassign_task / marvis_send_message / marvis_create_task + 6 个会议室工具')
+
+  /* ============ 系统提示：Marvis 办公室使用协议 ============ */
+
+  ctx.systemPrompt.section({
+    name: 'marvis-orchestrator:usage',
+    order: 118,
+    text: `当用户要求用 Marvis 多Agent办公室处理任务（例如"用 Marvis 办公室做 X"），或收到 /marvis 激活指令时，你就是雷总管（队长）。遵循如下协议：
+1. 调用 marvis_dispatch 广播任务；你成为队长，负责拆解、分派、验收。
+2. 复杂目标用 marvis_create_task 拆成带 dependencies 的子任务，指派给合适的员工（file/computer/app/zhuge/find）或外部 agent。
+3. 用 marvis_status 监控团队与任务板；空闲成员会由共享调度器自动认领 ready 任务并唤醒。
+4. 工作被阻塞/停滞需要转派时，先调用 marvis_reassign_task（assignee=captain 表示你接管）。
+5. 任务携带 attempt_id：成员用 marvis_claim_task 领取并拿到 attempt_id，之后每次 marvis_update_task 都带上；stale-attempt 拒绝 = 任务已转派，停止。
+6. 成员间/成员→队长用 marvis_send_message 直达邮箱并唤醒对方。
+7. 汇总团队成员结果呈现给用户。需要多人讨论时用 meeting_create/say/round 开会。`,
+  })
+
+  /* ============ /marvis 斜杠命令（确定性激活） ============ */
+
+  ctx.inject(['commands'], (commandCtx) => {
+    commandCtx.effect(() => commandCtx.commands.register({
+      name: 'marvis',
+      description: 'run a goal with the Marvis multi-agent office (you become the 雷总管/captain)',
+      input: { hint: '<goal — 要办公室完成的目标>' },
+      handler(invocation) {
+        const goal = invocation.rawInput.trim()
+        if (goal === '') {
+          return { kind: 'error', text: '用法：/marvis <goal — 要办公室完成的目标>' }
+        }
+        invocation.agent.followup(createUserMessage({
+          content: [{ type: 'text', text: `/marvis${invocation.rawInput}` }],
+          source: { kind: 'user' },
+        }))
+        return { kind: 'success', text: `Marvis 办公室已激活 — 雷总管将为目标拆解并派发：${goal}` }
+      },
+    }), 'marvis: slash command')
+  })
 
   /* ============ 服务暴露 ============ */
 
   const service: MarvisTeamService = {
     team,
-    dispatch: (text) => team.dispatch(text),
-    status: () => team.snapshot(),
+    office,
+    dispatch: (text) => office.dispatch(text).then(({ task }) => task.id),
+    status: () => office.snapshot(),
     getEventPort: () => port,
   }
   ctx.provide('marvis.team', service)
 
-  ctx.logger.info(`[marvis-orchestrator] 🏢 多Agent办公室就绪（liveDelegation=${liveDelegation}, port=${port}）`)
+  ctx.logger.info(`[marvis-orchestrator] 🏢 多Agent办公室就绪（liveDelegation=${liveDelegation}, demoMode=${demoMode}, port=${port}, state=${workspace}/.marvis-office）`)
 }
-

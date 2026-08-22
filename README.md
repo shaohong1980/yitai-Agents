@@ -28,10 +28,16 @@ E:\Myworkspace\                         # 你的代码，独立仓库
 │   │       ├── store.ts                # SQLite 记忆库（node:sqlite + FTS5）
 │   │       ├── focus-stack.ts          # 焦点栈（push/pop/回归/压缩回填）
 │   │       └── tools.ts                # memory_search/upsert/recall 等工具
-│   └── plugin-marvis-orchestrator\     # Marvis 1+5 多 Agent 办公室
+│   └── plugin-marvis-orchestrator\     # Marvis 1+5 多 Agent 办公室（借鉴 dsh-agent-teams 重写）
 │       ├── src\
-│       │   ├── index.ts                # 编排器（ticker + 工具 + WS/HTTP 服务）
-│       │   └── team.ts                 # 团队引擎（雷司令 + 6 名员工）
+│       │   ├── index.ts                # 组合层：HTTP/WS 面板 + 工具 + 系统提示 + /marvis 命令
+│       │   ├── office.ts               # 办公室引擎门面（磁盘真相 + 调度 + 成员 + 可视化桥接）
+│       │   ├── state.ts                # 磁盘持久化 + per-office 锁 + 任务 DAG/attempt 能力
+│       │   ├── scheduler.ts            # 事件驱动调度器（agent/status idle → 认领 → 唤醒）
+│       │   ├── members.ts              # durable 可续聊 subagent 员工（persona + 工具过滤）
+│       │   ├── types.ts                # durable 办公室/任务/邮箱类型
+│       │   ├── team.ts                 # 可视化工位/走动状态模型（demo 模式）
+│       │   └── meeting.ts              # 多 Agent 会议室引擎
 │       └── office\index.html           # 可视化面板（复刻 v3 原型 + 实时流）
 ├── scripts\
 │   ├── start.sh                        # Git Bash 启动
@@ -58,15 +64,38 @@ E:\Myworkspace\                         # 你的代码，独立仓库
 | 用户画像 | plugin-bailongma-memory | ✅ |
 | Marvis 1+5 多 Agent 办公室 | plugin-marvis-orchestrator | ✅ |
 | 可视化工位面板（实时 WS） | plugin-marvis-orchestrator | ✅ |
-| 任务派发/状态工具 | plugin-marvis-orchestrator | ✅ |
+| durable 磁盘状态（office.json + 邮箱，冷恢复） | plugin-marvis-orchestrator | ✅ |
+| 事件驱动调度器（idle → 认领 → 唤醒） | plugin-marvis-orchestrator | ✅ |
+| durable 可续聊 subagent 员工 | plugin-marvis-orchestrator | ✅ |
+| 任务 DAG 依赖 + attempt 能力 | plugin-marvis-orchestrator | ✅ |
+| 任务派发/状态/成员工具 | plugin-marvis-orchestrator | ✅ |
 | 多 Agent 会议室（圆桌讨论 + 纪要） | plugin-marvis-orchestrator | ✅ |
+
+## Marvis 办公室（借鉴 dsh-agent-teams 重写）
+
+`plugin-marvis-orchestrator` 借鉴 [@nanmicoder/dsh-agent-teams](https://github.com/NanmiCoder/dsh-agent-teams) 的架构重写了团队引擎：
+
+- **磁盘真相源**：办公室状态持久化到 `<workspace>/.marvis-office/office/office.json` + `inbox/*.jsonl`，重启后冷恢复团队/任务/邮箱。
+- **事件驱动调度**：监听 `agent/status` 的 idle 边，空闲员工自动认领 ready 任务并被唤醒（无需常驻轮询）。
+- **durable 员工**：开启 `liveDelegation` 后，5 名员工 spawn 为 durable 可续聊 subagent（persona + 工具过滤），跨轮次/跨重启保持会话。
+- **任务 DAG + attempt 能力**：任务可声明 `dependencies`，每次执行带单调 `attempt` + 唯一 `attemptId`；转派先失效旧能力，迟到写入无法覆盖新结果。
+- **成员工具**：`marvis_claim_task` / `marvis_update_task` / `marvis_send_message` / `marvis_reassign_task` / `marvis_create_task`。
+- **系统提示协议段 + `/marvis` 斜杠命令**：让模型知道何时以「雷总管/队长」身份建团队、拆任务、派发、验收。
+- 无可用真实 subagent（缺 API Key）时自动回退**可视化模拟**，面板照常运转。
+
+**配置**（`cordis.patch.yml` 的 `marvis-orchestrator.config`）：
+```yaml
+liveDelegation: true     # 真实 durable subagent 员工
+demoMode: true           # 无真实成员时回退可视化模拟
+subagentProvider: spawn  # spawn / fork
+stateDir: .marvis-office # 磁盘状态目录
+```
 
 ## 待办（见 docs/）
 
 - voice 插件（ASR/TTS，需 Provider Key）
 - 记忆 LLM 识别器（需 API Key）
 - Harness 前端 UI 槽嵌入（替代独立面板页）
-- liveDelegation：把子任务委托给 Harness subagent
 
 ## 智能 Agent 对话
 
